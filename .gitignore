@@ -1,0 +1,13 @@
+__pycache__/
+NTU_RGB+D_Samples/
+test_videos/
+vitpose_models/
+_base_/
+configs/
+mmdet_configs/
+test_images/
+vitpose_configs/
+*.png
+*.pth
+*.mp4
+*.jpg
