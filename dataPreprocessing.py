@@ -17,7 +17,7 @@ def main():
     visualize = False
     keypointNumber = 11     # To use upper body.
 
-    datasetFolder = "NTU_RGB+D_Samples/"
+    datasetFolder = "DatasetSamples/"
     scenesFolder = datasetFolder+"RGB/"
     depthsFolder = datasetFolder+"Depth Map/"
 
@@ -105,8 +105,14 @@ def main():
                     for subarray in array:
                         augPose.append(subarray)
 
+                # Quality checks for the augmented data:
+                # 1. Check that the vector is of the expected length.
                 if len(augPose) != 261:
                     print(f"Frame {frameCounter} in {filename} did not have the correct length for the augmented pose.")
+                    continue
+                # 2. Check if there are any NaNs in the data.
+                if np.isnan(augPose).any():
+                    print(f"Frame {frameCounter} in {filename} had a NaN value in the augmented pose.")
                     continue
 
                 aPs.append(np.array(augPose))

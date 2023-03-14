@@ -1,6 +1,6 @@
 import glob
 
-datasetFolder = "NTU_RGB+D_Samples/"
+datasetFolder = "DatasetSamples/"
 scenesFolder = datasetFolder+"RGB/"
 depthsFolder = datasetFolder+"Depth Map/"
 
