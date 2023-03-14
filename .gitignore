@@ -1,5 +1,6 @@
 __pycache__/
-NTU_RGB+D_Samples/
+NTU_RGB+D_Samples/Depth Map/
+NTU_RGB+D_Samples/RGB/
 test_videos/
 vitpose_models/
 _base_/
