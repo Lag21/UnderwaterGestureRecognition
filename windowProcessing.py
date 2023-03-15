@@ -4,17 +4,45 @@ from PIL import Image, ImageDraw
 import poseAugmentation as poseAug
 from model import _DetModel, _PoseModel
 
+def GaussianSmoothPose(windowPoses,b,keypointNumber=11):
+    smoothXCoord = []
+    smoothYCoord = []
+    for i, (xCoordRef, yCoordRef, _) in enumerate(windowPoses[3][:keypointNumber,:]):
+        xCoords = []
+        yCoords = []
+        for windowPose in windowPoses:
+            xCoords.append(windowPose[i][0])
+            yCoords.append(windowPose[i][1])
+        gkvX = np.exp(-(((3-np.array([0,1,2,3,4,5,6]))**2)/(2*(b**2))))
+        gkvY = np.exp(-(((3-np.array([0,1,2,3,4,5,6]))**2)/(2*(b**2))))
 
-def main(windowSize=7,device="cpu", visualize = True, performCorrection = True, saveOutput = False):
+        gkvX = gkvX/gkvX.sum()
+        gkvY = gkvY/gkvY.sum()
+
+        smoothXCoord.append((xCoords*gkvX).sum())
+        smoothYCoord.append((yCoords*gkvY).sum())
+
+    newWindowPose = windowPoses[3]
+    newWindowPose[:keypointNumber,0] = smoothXCoord
+    newWindowPose[:keypointNumber,1] = smoothYCoord
+    
+    return newWindowPose
+
+
+
+def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, poseFilter = True, saveOutput = True, outputType = 'compare'):
+    rawWindowFrames = []
+    rawPoseVisualizations = []
     windowFrames = []
     windowPoses = []
+    posePreds = []
     keypointNumber = 11
     replacementCounter = np.zeros((11,1))
     maxConsecutiveReplacements = 7
     jointThreshold = 0.3
 
     videoFile = "croppedVideos/Underwater02.mp4"
-    outputFile = "croppedVideos/windowTests/Underwater02_P.mp4"
+    outputFile = "croppedVideos/windowTests/Underwater02_vs.mp4"
 
     detectionModel = _DetModel(device=device)
     poseModel = _PoseModel(device=device)
@@ -24,13 +52,22 @@ def main(windowSize=7,device="cpu", visualize = True, performCorrection = True, 
     width = int(cap.get(3))
     height = int(cap.get(4))
     fps = int(cap.get(5))
-    frame_size = (width,height)
+    
 
-    output = cv2.VideoWriter(outputFile, cv2.VideoWriter_fourcc('m','p','4','v'), fps, frame_size)
+    if saveOutput:
+        if outputType == 'solo':
+            frame_size = (width,height)
+            output = cv2.VideoWriter(outputFile, cv2.VideoWriter_fourcc('m','p','4','v'), fps, frame_size)
+        elif outputType == 'compare':
+            frame_size = (width*3,height)
+            output = cv2.VideoWriter(outputFile, cv2.VideoWriter_fourcc('m','p','4','v'), fps, frame_size)
 
     for i in range(windowSize):
+        rawWindowFrames.append(np.zeros((height,width,3),dtype=np.uint8))
         windowFrames.append(np.zeros((height,width,3),dtype=np.uint8))
         windowPoses.append(np.zeros((17,3)))
+        posePreds.append(None)
+        rawPoseVisualizations.append(np.zeros((height,width,3),dtype=np.uint8))
 
     while(cap.isOpened()):
         ret, frame = cap.read()
@@ -45,14 +82,20 @@ def main(windowSize=7,device="cpu", visualize = True, performCorrection = True, 
                                                                 4,                       #Keypoint Radius
                                                                 2)                       #Line Thickness
             
+            rawWindowFrames.pop(0)
+            rawWindowFrames.append(frame)
+            rawPoseVisualizations.pop(0)
+            rawPoseVisualizations.append(poseVisualization)
             windowFrames.pop(0)
             windowPoses.pop(0)
+            posePreds.pop(0)
             try:
                 posePredictions[0]['keypoints'][keypointNumber:,2] = 0    # Cleaning up pose keypoints to exclude lower body.
                 windowPoses.append(posePredictions[0]['keypoints'])
+                posePreds.append(posePredictions)
 
-                # Check if there are any missing / below threshold keypoints
-                if performCorrection:
+                # Check if there are any missing / below threshold keypoints on Last Frame:
+                if jointReplacement:
                     for i, (xCoord, yCoord, jointConf) in enumerate(windowPoses[-1][:keypointNumber,:]):
                         if jointConf < jointThreshold:
                             prevXCoord, prevYCoord, prevJointConf = windowPoses[-2][i]
@@ -65,17 +108,31 @@ def main(windowSize=7,device="cpu", visualize = True, performCorrection = True, 
                         else:
                             replacementCounter[i] = 0
 
-                    # Update pose results for visualization:
+                    # Update pose results on Last Frame for visualization:
                     posePredictions[0]['keypoints'] = windowPoses[-1]
-                        
 
-                poseVis = poseModel.visualize_pose_results(np.asarray(frame),
+                if poseFilter:
+                    # Gaussian Smoothing on Middle Frame
+                    if posePreds[3] is not None:
+                        newWindowPose = GaussianSmoothPose(windowPoses,3)
+                        middleFrame = rawWindowFrames[3]
+                        posePredictionsMiddle = posePreds[3]
+                        posePredictionsMiddle[0]['keypoints'] = newWindowPose
+                        poseVisMiddle = poseModel.visualize_pose_results(np.asarray(middleFrame),
+                                                           posePredictionsMiddle,
+                                                           jointThreshold,
+                                                           4,
+                                                           2
+                                                           )
+                        windowFrames[3] = poseVisMiddle
+
+                poseVisLast = poseModel.visualize_pose_results(np.asarray(frame),
                                                            posePredictions,
                                                            jointThreshold,
                                                            4,
                                                            2
                                                            )
-                windowFrames.append(poseVis)
+                windowFrames.append(poseVisLast)
             except Exception as e:
                 print(f"Unexpected {e}, {type(e)}")
                 windowFrames.append(poseVisualization)
@@ -93,7 +150,19 @@ def main(windowSize=7,device="cpu", visualize = True, performCorrection = True, 
 
             resizedDisplay = cv2.resize(completeDisplay, (resizedWidth,resizedHeight), interpolation=cv2.INTER_AREA)
             cv2.imshow('Frame',resizedDisplay)
-            output.write(poseVis)
+
+            if saveOutput:
+                if outputType == 'solo':
+                    focusFrame = 3
+                    frameToSave = windowFrames[focusFrame]
+                    output.write(frameToSave)
+                elif outputType == 'compare':
+                    focusFrame = 3
+                    rawFr = rawWindowFrames[focusFrame]
+                    poseFr = rawPoseVisualizations[focusFrame]
+                    procFr = windowFrames[focusFrame]
+                    frameToSave = np.concatenate([rawFr,poseFr,procFr], axis=1)
+                    output.write(frameToSave)
 
             pressedKey = cv2.waitKey(1) & 0xFF
             if pressedKey == ord('q'):
@@ -102,7 +171,8 @@ def main(windowSize=7,device="cpu", visualize = True, performCorrection = True, 
             break
     
     cap.release()
-    output.release()
+    if saveOutput:
+        output.release()
     cv2.destroyAllWindows()
 
 if __name__=="__main__":
