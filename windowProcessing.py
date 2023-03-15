@@ -28,8 +28,6 @@ def GaussianSmoothPose(windowPoses,b,keypointNumber=11):
     
     return newWindowPose
 
-
-
 def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, poseFilter = True, saveOutput = True, outputType = 'compare'):
     rawWindowFrames = []
     rawPoseVisualizations = []
