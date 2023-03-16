@@ -36,11 +36,12 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
     posePreds = []
     keypointNumber = 11
     replacementCounter = np.zeros((11,1))
+    misdetectionCounter = 0
     maxConsecutiveReplacements = 7
     jointThreshold = 0.3
 
-    videoFile = "croppedVideos/Underwater02.mp4"
-    outputFile = "croppedVideos/windowTests/Underwater02_vs.mp4"
+    videoFile = "croppedVideos/Normal04.mp4"
+    outputFile = "croppedVideos/windowTests/Normal04_vs.mp4"
 
     detectionModel = _DetModel(device=device)
     poseModel = _PoseModel(device=device)
@@ -87,6 +88,20 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
             windowFrames.pop(0)
             windowPoses.pop(0)
             posePreds.pop(0)
+
+            # Dealing with the lack of human detection in the frame:
+            if len(posePredictions) == 0 and misdetectionCounter < maxConsecutiveReplacements:
+                posePredictions = posePreds[-1]
+                misdetectionCounter += 1
+                print(f"Replaced human detection and whole skeleton for {misdetectionCounter} consecutive times.")
+            elif len(posePredictions) == 0 and misdetectionCounter >= maxConsecutiveReplacements:
+                posePredictions = posePreds[-1]
+                posePredictions[0]['keypoints'][:,2] = 0    # If there were too many consecutive misdetections, set all keypoint confidence values to 0
+                misdetectionCounter += 1
+                print(f"{misdetectionCounter} consecutive misdetections, setting pose predictions to 0.")
+            else:
+                misdetectionCounter = 0
+
             try:
                 posePredictions[0]['keypoints'][keypointNumber:,2] = 0    # Cleaning up pose keypoints to exclude lower body.
                 windowPoses.append(posePredictions[0]['keypoints'])
@@ -97,7 +112,7 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
                     for i, (xCoord, yCoord, jointConf) in enumerate(windowPoses[-1][:keypointNumber,:]):
                         if jointConf < jointThreshold:
                             prevXCoord, prevYCoord, prevJointConf = windowPoses[-2][i]
-                            if prevJointConf >= jointThreshold and replacementCounter[i] < maxConsecutiveReplacements:
+                            if prevJointConf >= jointThreshold and replacementCounter[i] < maxConsecutiveReplacements and misdetectionCounter < maxConsecutiveReplacements:
                                 windowPoses[-1][i] = windowPoses[-2][i]
                                 replacementCounter[i] += 1
                                 print(f"Replaced joint {i} for {replacementCounter[i]} consecutive times.")
@@ -135,6 +150,7 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
                 print(f"Unexpected {e}, {type(e)}")
                 windowFrames.append(poseVisualization)
                 windowPoses.append(np.zeros((17,3)))
+                posePreds.append(posePredictions)
             
             row1 = np.concatenate(windowFrames[:3], axis=1)
             row2 = np.concatenate([np.zeros((height,width,3),dtype=np.uint8),windowFrames[3],np.zeros((height,width,3),dtype=np.uint8)], axis=1)
