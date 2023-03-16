@@ -148,7 +148,7 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
                     # Gaussian Smoothing on Middle Frame
                     if posePreds[3] is not None:
                         newWindowPose = GaussianSmoothPose(windowPoses,3)
-                        middleFrame = rawWindowFrames[3]
+                        middleFrame = rawWindowFrames[3].copy()
                         posePredictionsMiddle = posePreds[3]
                         posePredictionsMiddle[0]['keypoints'] = newWindowPose
                         poseVisMiddle = poseModel.visualize_pose_results(np.asarray(middleFrame),
@@ -183,6 +183,17 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
                     for subarray in array:
                         augPose.append(subarray)
 
+            # Hand Extraction.
+            # This is done in the middle frame, after gaussian smoothing.
+                handL = posePredictionsMiddle[0]['keypoints'][9][0:2]
+                handR = posePredictionsMiddle[0]['keypoints'][10][0:2]
+                print(handL,handR)
+
+                handL_ = rawWindowFrames[3].copy()[np.int(handL[1])-40:np.int(handL[1])+40,np.int(handL[0])-40:np.int(handL[0])+40]
+                handR_ = rawWindowFrames[3].copy()[np.int(handR[1])-40:np.int(handR[1])+40,np.int(handR[0])-40:np.int(handR[0])+40]
+                cv2.imshow('Left Hand',handL_)
+                cv2.imshow('Right Hand',handR_)
+
             # Depth Estimation.
             # This is done only after the pose is augmented.
                 estDepth = depthModel.forward(augPose).item()
@@ -192,6 +203,8 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
                 neckX = (posePredictionsMiddle[0]['keypoints'][5][0]+posePredictionsMiddle[0]['keypoints'][6][0])/2
                 neckY = (posePredictionsMiddle[0]['keypoints'][5][1]+posePredictionsMiddle[0]['keypoints'][6][1])/2
                 posePredictionsMiddle[0]['keypoints'] = (posePredictionsMiddle[0]['keypoints']-np.array([neckX,neckY,0]))/estDepth
+
+
 
             # Visualization.
             row1 = np.concatenate(windowFrames[:3], axis=1)

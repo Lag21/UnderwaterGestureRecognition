@@ -180,7 +180,7 @@ def getConfKeypoints(pose_preds):
     print(f'Before removing kpts: \n{pose_preds}')
     acceptedKeypoints = []
     for i, keypoint in enumerate(pose_preds[0]['keypoints']):
-        if keypoint[2] >= args.vis_kpt_score_threshold:
+        if keypoint[2] >= 11:
             acceptedKeypoints.append(keypoint)
     pose_preds[0]['keypoints'] = np.array(acceptedKeypoints)
     keypointNumber = len(acceptedKeypoints)
