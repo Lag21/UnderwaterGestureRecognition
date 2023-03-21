@@ -47,8 +47,8 @@ def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, 
     jointThreshold = 0.3
 
     # Input and output paths.
-    videoFile = "croppedVideos/Underwater05.mp4"
-    outputFile = "croppedVideos/windowTests/Underwater05_vs.mp4"
+    videoFile = "croppedVideos/Normal01.mp4"
+    outputFile = "croppedVideos/windowTests/Normal01_vs.mp4"
 
     # Initializing detector and pose estimator.
     detectionModel = _DetModel(device=device)
@@ -57,7 +57,7 @@ def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, 
 
     # Initializing the depth estimator.
     depthModel = DepthEstimator()
-    depthModel.load_state_dict(torch.load("depthEstimatorModels/depthEstimator01.pth"))
+    depthModel.load_state_dict(torch.load("depthEstimatorModels/depthEstimator02.pth"))
     depthModel.eval()
 
     # Initializing video input.
@@ -183,19 +183,27 @@ def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, 
                     for subarray in array:
                         augPose.append(subarray)
 
+            # Depth Estimation.
+            # This is done only after the pose is augmented.
+                estDepths = depthModel.forward(augPose)
+                neckDepth = estDepths[0].item()
+                leftHandDepth = estDepths[1].item()
+                rightHandDepth = estDepths[2].item()
+
             # Hand Extraction.
             # This is done in the middle frame, after gaussian smoothing.
                 handL = posePredictionsMiddle[0]['keypoints'][9][0:2]
                 handR = posePredictionsMiddle[0]['keypoints'][10][0:2]
 
-                handL_ = rawWindowFrames[3].copy()[int(handL[1])-40:int(handL[1])+40,int(handL[0])-40:int(handL[0])+40]
-                handR_ = rawWindowFrames[3].copy()[int(handR[1])-40:int(handR[1])+40,int(handR[0])-40:int(handR[0])+40]
+                modL_ = int(40*leftHandDepth/width)
+                modR_ = int(40*rightHandDepth/width)
+
+                handL_ = rawWindowFrames[3].copy()[int(handL[1])-modL_:int(handL[1])+modL_,int(handL[0])-modL_:int(handL[0])+modL_]
+                handR_ = rawWindowFrames[3].copy()[int(handR[1])-modR_:int(handR[1])+modR_,int(handR[0])-modR_:int(handR[0])+modR_]
                 cv2.imshow('Left Hand',handL_)
                 cv2.imshow('Right Hand',handR_)
 
-            # Depth Estimation.
-            # This is done only after the pose is augmented.
-                #estDepth = depthModel.forward(augPose).item()
+
 
             # Pose Normalization.
             # This is done only after the depth is estimated.

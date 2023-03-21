@@ -14,7 +14,7 @@ class DepthEstimator(nn.Module):
                                nn.Linear(100, 100),
                                nn.Linear(100, 75),
                                nn.Linear(75, 50),
-                               nn.Linear(50, 1)
+                               nn.Linear(50, 3)
                                )
 
   def forward(self, x):
