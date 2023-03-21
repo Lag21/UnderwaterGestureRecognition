@@ -13,4 +13,6 @@ vitpose_configs/
 *.mp4
 *.jpg
 *.avi
+aPs_*.npy
+eDs_*.npy
 videoCropping.py

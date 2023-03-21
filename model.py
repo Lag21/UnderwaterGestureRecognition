@@ -58,6 +58,12 @@ class DetModel:
             'model':
             'https://download.openmmlab.com/mmpose/mmdet_pretrained/cascade_rcnn_x101_64x4d_fpn_20e_onehand10k-dac19597_20201030.pth',
         },
+        'Hand2': {   # Hand Detector
+            'config':
+            'mmdet_configs/configs/ssd/ssdlite_mobilenetv2_scratch_600e_onehand.py',
+            'model':
+            'https://download.openmmlab.com/mmpose/mmdet_pretrained/ssdlite_mobilenetv2_scratch_600e_onehand-4f9f8686_20220523.pth',
+        },
     }
 
     def __init__(self, device: str | torch.device):
@@ -142,6 +148,26 @@ class PoseModel:
             'config':
             'configs/hand/2d_kpt_sview_rgb_img/topdown_heatmap/onehand10k/res50_onehand10k_256x256.py',
             'model': 'https://download.openmmlab.com/mmpose/top_down/resnet/res50_onehand10k_256x256-e67998f6_20200813.pth',
+        },
+        'ViTPose+-S-Hand': { # Hand Pose Estimator
+            'config':
+            'vitpose_configs/ViTPose_small_interhand2d_all_256x192.py',
+            'model': 'vitpose_models/vitpose_small_hand.pth',
+        },
+        'ViTPose+-B-Hand': { # Hand Pose Estimator
+            'config':
+            'vitpose_configs/ViTPose_base_interhand2d_all_256x192.py',
+            'model': 'vitpose_models/vitpose+_base_hand.pth',
+        },
+        'WholeBody-V+S': { # Whole Body Pose Estimator
+            'config':
+            'vitpose_configs/ViTPose_small_wholebody_256x192.py',
+            'model': 'vitpose+_models/vitpose+_small.pth',
+        },
+        'WholeBody-V+H': { # Whole Body Pose Estimator
+            'config':
+            'vitpose_configs/ViTPose_huge_wholebody_256x192.py',
+            'model': 'vitpose+_models/vitpose+_huge.pth',
         },
     }
 

@@ -7,6 +7,7 @@ import cv2
 import argparse
 
 from model import _DetModel, _PoseModel
+from mmpose.apis import inference_top_down_pose_model, init_pose_model, vis_pose_result
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
@@ -46,27 +47,17 @@ def parse_args() -> argparse.Namespace:
 
 def main():
     args = parse_args()
-    det_model = _DetModel(device='cuda')
+    det_model = _DetModel(device='cpu')
     det_model.set_model(args.detector_name)
-    handDet_model = _DetModel(device='cuda')
-    handDet_model.set_model('Hand')
-
-    raw_image = Image.open(args.image_filename)
-    input_image = np.asarray(raw_image)
+    poseModel = _PoseModel(device='cpu')
+    #handDet_model = _DetModel(device='cuda')
+    #handDet_model.set_model('Hand2')
 
     #handDet_preds, handDetection_visualization = handDet_model.run('Hand', input_image, 0.5)
 
-    #handBoundingBoxes = []
-    #for detectedHand in handDet_preds[0]:
-    #    handBoundingBoxes.append(detectedHand[0:4])
 
-    #leftHand = raw_image.crop([handBoundingBoxes[0][0]*0.98,handBoundingBoxes[0][1]*0.98,handBoundingBoxes[0][2]*1.02,handBoundingBoxes[0][3]*1.02])
-    #rightHand = raw_image.crop([handBoundingBoxes[1][0]*0.98,handBoundingBoxes[1][1]*0.98,handBoundingBoxes[1][2]*1.02,handBoundingBoxes[1][3]*1.02])
-
-    #leftHand.show()
-    #rightHand.show()
-
-    testVideoPath = 'test_videos/diver.mp4'
+    testVideoPath = 'croppedVideos/Underwater06.mp4'
+    outputFile = 'croppedVideos/handTests/Underwater06_.mp4'
     cap = cv2.VideoCapture(testVideoPath)
     frameCounter = 0
     counter = 0
@@ -74,8 +65,8 @@ def main():
     frame_width = int(cap.get(3))
     frame_height = int(cap.get(4))
     frame_size = (frame_width,frame_height)
-    fps = 20
-    output = cv2.VideoWriter('/home/alejandro/Documents/GitHub/UnderwaterGestureRecognition/test_videos/HandDetection_03.mp4', cv2.VideoWriter_fourcc(*'XVID'), fps, frame_size)
+    fps = int(cap.get(5))
+    output = cv2.VideoWriter(outputFile, cv2.VideoWriter_fourcc('m','p','4','v'), fps, frame_size)
 
     handDetected = False
 
@@ -83,53 +74,25 @@ def main():
         frameCounter+=1
         ret, frame = cap.read()
 
-        #if frameCounter < 510:
-        #    pass
-        #elif frameCounter > 1470:
-        #    break
-        #else:
-        if ret:
-            #cv2.imshow('Frame',frame)
-            cv2.waitKey(1)
-            #counter+=1
-            #if counter > 10:
-            #    break
+        if ret:            
+            det_preds, detection_visualization = det_model.run(args.detector_name, np.asarray(frame), args.vis_det_score_threshold)
+            posePredictions, poseVisualization = poseModel.run('WholeBody-V+S',             #PoseModel
+                                                                np.asarray(frame),       #Input
+                                                                det_preds,    #Detected Human Box
+                                                                0.3,                     #Detection Threshold
+                                                                0.3,          #Keypoint Visualization Threshold
+                                                                4,                       #Keypoint Radius
+                                                                2)                       #Line Thickness
             
-            #det_preds, detection_visualization = det_model.run(args.detector_name, np.asarray(frame), args.vis_det_score_threshold)
             
-            handDet_preds, handDetection_visualization = handDet_model.run('Hand', np.asarray(frame), args.vis_det_score_threshold)
-            #print(handDet_preds)
-            #print(len(handDet_preds[0]))
-            #if len(handDet_preds[0]) > 0:
-            #    if handDet_preds[0][0][4] > args.vis_det_score_threshold:
-            #        handDetected = True
-            #    else:
-            #        handDetected = False
-            
-            #cv2.imshow('Frame',detection_visualization)
-            output.write(handDetection_visualization)
+            cv2.imshow('Frame',poseVisualization)
+            output.write(poseVisualization)
+
+            pressedKey = cv2.waitKey(1) & 0xFF
+            if pressedKey == ord('q'):
+                break
         else:
             break
-
-
-        #if frame is not None:
-        #    frame2 = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        #    handDet_preds, handDetection_visualization = handDet_model.run('Hand', np.asarray(frame2), 0.5)
-        #    print(f'------{counter}------')
-        #    print(handDet_preds)
-        #    #Image.fromarray(handDetection_visualization).show()
-        #    handBoundingBoxes = []
-        #    for detectedHand in handDet_preds[0]:
-        #        handBoundingBoxes.append(detectedHand[0:4])
-
-            
-        #    #leftHand = raw_image.crop([handBoundingBoxes[0][0]*0.98,handBoundingBoxes[0][1]*0.98,handBoundingBoxes[0][2]*1.02,handBoundingBoxes[0][3]*1.02])
-        #    #leftHand.show()
-        #    counter += 1
-        #    if counter > 20: break
-        #else:
-        #    counter += 1
-        #    if counter > 20: break
 
     cap.release()
     output.release()

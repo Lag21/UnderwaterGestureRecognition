@@ -6,6 +6,7 @@ def augmentPose(pose_preds, jointStructure='body'):
 
     # Include estimated keypoints in the augmented pose vector
     if jointStructure=='body':
+        pose_preds[0]['keypoints'] = pose_preds[0]['keypoints'][0:11]
         for keypoint in pose_preds[0]['keypoints']:
             posePlus.append(np.array([keypoint[0],keypoint[1]]))
 

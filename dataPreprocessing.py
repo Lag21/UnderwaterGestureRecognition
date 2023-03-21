@@ -68,7 +68,6 @@ def main():
 
                 # Extracting the coordinates of the middle point between both shoulders.
                 # These coordinates will be used to collect the depth value from the depth map.
-
                 rgbX = (posePredictions[0]['keypoints'][5][0]+posePredictions[0]['keypoints'][6][0])/2
                 rgbY = (posePredictions[0]['keypoints'][5][1]+posePredictions[0]['keypoints'][6][1])/2
                 depthImage = Image.open(depthMaps[frameCounter])
@@ -82,6 +81,26 @@ def main():
                 depthY = int(relativeY*depthHeight)
 
                 pixelValue = depthImage.getpixel((depthX,depthY))
+
+                # Performing the same steps for left and right hands:
+                rgbXlh = (posePredictions[0]['keypoints'][9][0])
+                rgbYlh = (posePredictions[0]['keypoints'][9][1])
+                rgbXrh = (posePredictions[0]['keypoints'][10][0])
+                rgbYrh = (posePredictions[0]['keypoints'][10][1])
+
+                relativeXlh = rgbXlh/rgbWidth
+                relativeYlh = rgbYlh/rgbHeight
+                relativeXrh = rgbXrh/rgbWidth
+                relativeYrh = rgbYrh/rgbHeight
+
+                depthXlh = int(relativeXlh*depthWidth)
+                depthYlh = int(relativeYlh*depthHeight)
+                depthXrh = int(relativeXrh*depthWidth)
+                depthYrh = int(relativeYrh*depthHeight)
+
+                pixelValueLH = depthImage.getpixel((depthXlh,depthYlh))
+                pixelValueRH = depthImage.getpixel((depthXrh,depthYrh))
+
                 
                 # Updating the frame counter.
                 frameCounter+=1
@@ -113,9 +132,13 @@ def main():
                 if np.isnan(augPose).any():
                     print(f"Frame {frameCounter} in {filename} had a NaN value in the augmented pose.")
                     continue
+                # 3. Check if all the extracted depths have a non-zero value.
+                if pixelValue == 0 or pixelValueLH == 0 or pixelValueRH == 0:
+                    print(f"Frame {frameCounter} in {filename} had a 0 depth value in the extracted coordinates.")
+                    continue
 
                 aPs.append(np.array(augPose))
-                eDs.append(np.array(pixelValue))
+                eDs.append(np.array([pixelValue,pixelValueLH,pixelValueRH]))
 
                 pressedKey = cv2.waitKey(1) & 0xFF
                 if pressedKey == ord('q'):

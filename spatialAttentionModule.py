@@ -1,4 +1,5 @@
 import cv2
+import copy
 import numpy as np
 import torch
 from torch import nn
@@ -31,7 +32,7 @@ def GaussianSmoothPose(windowPoses,b,keypointNumber=11):
     
     return newWindowPose
 
-def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, poseFilter = True, saveOutput = False, outputType = 'compare'):
+def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, poseFilter = True, saveOutput = False, outputType = 'compare'):
     # Initialization of parameters and arrays
     rawWindowFrames = []
     rawPoseVisualizations = []
@@ -46,8 +47,8 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
     jointThreshold = 0.3
 
     # Input and output paths.
-    videoFile = "croppedVideos/Normal04.mp4"
-    outputFile = "croppedVideos/windowTests/Normal04_vs.mp4"
+    videoFile = "croppedVideos/Underwater05.mp4"
+    outputFile = "croppedVideos/windowTests/Underwater05_vs.mp4"
 
     # Initializing detector and pose estimator.
     detectionModel = _DetModel(device=device)
@@ -149,7 +150,7 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
                     if posePreds[3] is not None:
                         newWindowPose = GaussianSmoothPose(windowPoses,3)
                         middleFrame = rawWindowFrames[3].copy()
-                        posePredictionsMiddle = posePreds[3]
+                        posePredictionsMiddle = copy.deepcopy(posePreds[3])
                         posePredictionsMiddle[0]['keypoints'] = newWindowPose
                         poseVisMiddle = poseModel.visualize_pose_results(np.asarray(middleFrame),
                                                            posePredictionsMiddle,
@@ -175,8 +176,7 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
             # Pose Augmentation.
             ## This is done in the middle frame, after gaussian smoothing.
             if posePreds[3] is not None:
-                posePredictionsMiddle[0]['keypoints'] = posePredictionsMiddle[0]['keypoints'][0:keypointNumber]
-                augmentedPose = poseAug.augmentPose(posePredictionsMiddle, jointStructure="body")
+                augmentedPose = poseAug.augmentPose(copy.deepcopy(posePredictionsMiddle), jointStructure="body")
                 
                 augPose = []
                 for array in augmentedPose:
@@ -187,22 +187,58 @@ def main(windowSize=7,device="cpu", visualize = True, jointReplacement = True, p
             # This is done in the middle frame, after gaussian smoothing.
                 handL = posePredictionsMiddle[0]['keypoints'][9][0:2]
                 handR = posePredictionsMiddle[0]['keypoints'][10][0:2]
-                print(handL,handR)
 
-                handL_ = rawWindowFrames[3].copy()[np.int(handL[1])-40:np.int(handL[1])+40,np.int(handL[0])-40:np.int(handL[0])+40]
-                handR_ = rawWindowFrames[3].copy()[np.int(handR[1])-40:np.int(handR[1])+40,np.int(handR[0])-40:np.int(handR[0])+40]
+                handL_ = rawWindowFrames[3].copy()[int(handL[1])-40:int(handL[1])+40,int(handL[0])-40:int(handL[0])+40]
+                handR_ = rawWindowFrames[3].copy()[int(handR[1])-40:int(handR[1])+40,int(handR[0])-40:int(handR[0])+40]
                 cv2.imshow('Left Hand',handL_)
                 cv2.imshow('Right Hand',handR_)
 
             # Depth Estimation.
             # This is done only after the pose is augmented.
-                estDepth = depthModel.forward(augPose).item()
+                #estDepth = depthModel.forward(augPose).item()
 
             # Pose Normalization.
             # This is done only after the depth is estimated.
                 neckX = (posePredictionsMiddle[0]['keypoints'][5][0]+posePredictionsMiddle[0]['keypoints'][6][0])/2
                 neckY = (posePredictionsMiddle[0]['keypoints'][5][1]+posePredictionsMiddle[0]['keypoints'][6][1])/2
-                posePredictionsMiddle[0]['keypoints'] = (posePredictionsMiddle[0]['keypoints']-np.array([neckX,neckY,0]))/estDepth
+
+                # Calculating X distance from left shoulder to right shoulder, from left shoulder to right hip,
+                # from left hip to right shoulder, and from left hip to right hip.
+                xDistLSRS = abs(posePredictionsMiddle[0]['keypoints'][5][0]-posePredictionsMiddle[0]['keypoints'][6][0])
+                xDistLSRH = abs(posePredictionsMiddle[0]['keypoints'][5][0]-posePredictionsMiddle[0]['keypoints'][12][0])
+                xDistLHRS = abs(posePredictionsMiddle[0]['keypoints'][11][0]-posePredictionsMiddle[0]['keypoints'][6][0])
+                xDistLHRH = abs(posePredictionsMiddle[0]['keypoints'][11][0]-posePredictionsMiddle[0]['keypoints'][12][0])
+                # Selecting the biggest distance.
+                torsoWidth = max(xDistLSRS,xDistLSRH,xDistLHRS,xDistLHRH)
+                # Calculating Y distance from left shoulder to left hip, from left shoulder to right hip,
+                # from right shoulder to left hip, and from right shoulder to right hip.
+                yDistLSLH = abs(posePredictionsMiddle[0]['keypoints'][5][0]-posePredictionsMiddle[0]['keypoints'][11][0])
+                yDistLSRH = abs(posePredictionsMiddle[0]['keypoints'][5][0]-posePredictionsMiddle[0]['keypoints'][12][0])
+                yDistRSLH = abs(posePredictionsMiddle[0]['keypoints'][6][0]-posePredictionsMiddle[0]['keypoints'][11][0])
+                yDistRSRH = abs(posePredictionsMiddle[0]['keypoints'][6][0]-posePredictionsMiddle[0]['keypoints'][12][0])
+                # Selecting the biggest distance.
+                torsoHeight = max(yDistLSLH,yDistLSRH,yDistRSLH,yDistRSRH)
+                # Calculating the width-to-height torso ratio.
+                torsoRatio = torsoWidth/torsoHeight # == xScale/yScale
+             
+                #bboxWidth = abs(int(posePredictionsMiddle[0]['bbox'][2])-int(posePredictionsMiddle[0]['bbox'][1]))
+                #bboxHeight = abs(int(posePredictionsMiddle[0]['bbox'][1])-int(posePredictionsMiddle[0]['bbox'][3]))
+                xScale = torsoWidth/(width/4)
+                yScale = xScale/torsoRatio
+
+                posePredictionsMiddle[0]['keypoints'] = (posePredictionsMiddle[0]['keypoints']-np.array([neckX-width/2,neckY-height/4,0]))#/[xScale, yScale, 1]
+
+                bboxFrame = np.zeros((height,width,3),dtype=np.uint8)
+                posePredictionsMiddle[0].pop('bbox')
+                test = poseModel.visualize_pose_results(bboxFrame,
+                                                           posePredictionsMiddle,
+                                                           jointThreshold,
+                                                           4,
+                                                           2
+                                                           )
+                cv2.imshow('Test',cv2.resize(test,(int(width*0.5),int(height*0.5)),interpolation=cv2.INTER_AREA))
+
+
 
 
 
