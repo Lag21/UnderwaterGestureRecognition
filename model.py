@@ -2,24 +2,13 @@ from __future__ import annotations
 
 import pathlib
 import sys
-
-#if os.getenv('SYSTEM') == 'spaces':
-#    import mim
-
-    #mim.uninstall('mmcv-full', confirm_yes=True)
-    #mim.install('mmcv-full==1.5.0', is_yes=True)
-
-    #subprocess.run('pip uninstall -y opencv-python'.split())
-    #subprocess.run('pip uninstall -y opencv-python-headless'.split())
-    #subprocess.run('pip install opencv-python-headless==4.5.5.64'.split())
-
 import numpy as np
 import torch
 import torch.nn as nn
 
-app_dir = pathlib.Path(__file__).parent
-submodule_dir = app_dir / 'ViTPose/'
-sys.path.insert(0, submodule_dir.as_posix())
+#app_dir = pathlib.Path(__file__).parent
+#submodule_dir = app_dir / 'ViTPose/'
+#sys.path.insert(0, submodule_dir.as_posix())
 
 from mmdet.apis import inference_detector, init_detector
 from mmpose.apis import (inference_top_down_pose_model, init_pose_model,
@@ -68,9 +57,10 @@ class DetModel:
 
     def __init__(self, device: str | torch.device):
         self.device = torch.device(device)
+        self.model_name = None
         #self._load_all_models_once()
-        self.model_name = 'YOLOX-l'
-        self.model = self._load_model(self.model_name)
+        #self.model_name = 'YOLOX-l'
+        #self.model = self._load_model(self.model_name)
 
     def _load_all_models_once(self) -> None:
         for name in self.MODEL_DICT:
@@ -152,17 +142,17 @@ class PoseModel:
         'ViTPose+-S-Hand': { # Hand Pose Estimator
             'config':
             'vitpose_configs/ViTPose_small_interhand2d_all_256x192.py',
-            'model': 'vitpose_models/vitpose_small_hand.pth',
+            'model': 'vitpose+_models/vitpose_small_hand.pth',
         },
         'ViTPose+-B-Hand': { # Hand Pose Estimator
             'config':
             'vitpose_configs/ViTPose_base_interhand2d_all_256x192.py',
-            'model': 'vitpose_models/vitpose+_base_hand.pth',
+            'model': 'vitpose+_models/vitpose_base_hand.pth',
         },
         'WholeBody-V+S': { # Whole Body Pose Estimator
             'config':
             'vitpose_configs/ViTPose_small_wholebody_256x192.py',
-            'model': 'vitpose+_models/vitpose+_small.pth',
+            'model': 'vitpose+_models/wholebody_vitpose+small.pth',
         },
         'WholeBody-V+H': { # Whole Body Pose Estimator
             'config':
@@ -173,8 +163,9 @@ class PoseModel:
 
     def __init__(self, device: str | torch.device):
         self.device = torch.device(device)
-        self.model_name = 'ViTPose-B*'
-        self.model = self._load_model(self.model_name)
+        self.model_name = None
+        #self.model_name = 'ViTPose-B*'
+        #self.model = self._load_model(self.model_name)
 
     def _load_all_models_once(self) -> None:
         for name in self.MODEL_DICT:
