@@ -11,7 +11,7 @@ import poseAugmentation as poseAug
 from model import _DetModel, _PoseModel
 from depthEstimator import DepthEstimator
 
-def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, poseFilter = True, saveOutput = False, outputType = 'compare'):
+def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplacement = True, poseFilter = True, saveOutput = False, outputType = 'compare'):
     # Initialization of parameters and arrays
     rawWindowFrames = []
     rawPoseVisualizations = []
@@ -20,9 +20,9 @@ def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, 
     posePreds = []
     augmentedPoses = []
     leftHandLocations = []
-    leftHandArea = []
+    leftHandCorners = []
     rightHandLocations = []
-    rightHandArea = []
+    rightHandCorners = []
     keypointNumber = 11
     replacementCounter = np.zeros((11,1))
     misdetectionCounter = 0
@@ -30,13 +30,20 @@ def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, 
     jointThreshold = 0.3
 
     # Input and output paths.
-    videoFile = "croppedVideos/Normal01.mp4"
-    outputFile = "croppedVideos/windowTests/Normal01_vs.mp4"
+    videoFile = "croppedVideos/Underwater01.mp4"
+    outputFile = "croppedVideos/windowTests/Underwater01_vs.mp4"
 
     # Initializing detector and pose estimator.
     detectionModel = _DetModel(device=device)
     poseModel = _PoseModel(device=device)
     detectionModel.set_model("YOLOX-x")
+
+    # Initializing MediaPipe.
+    ###
+    mp_drawing = mp.solutions.drawing_utils
+    mp_drawing_styles = mp.solutions.drawing_styles
+    mp_hands = mp.solutions.hands
+    ###
 
     # Initializing the depth estimator.
     depthModel = DepthEstimator()
@@ -67,9 +74,9 @@ def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, 
         rawPoseVisualizations.append(np.zeros((height,width,3),dtype=np.uint8))
         augmentedPoses.append(None)
         leftHandLocations.append(None)
-        leftHandArea.append(None)
+        leftHandCorners.append(None)
         rightHandLocations.append(None)
-        rightHandArea.append(None)
+        rightHandCorners.append(None)
         
 
     ###
@@ -100,9 +107,9 @@ def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, 
                 windowPoses.pop(0)
                 posePreds.pop(0)
                 leftHandLocations.pop(0)
-                leftHandArea.pop(0)
+                leftHandCorners.pop(0)
                 rightHandLocations.pop(0)
-                rightHandArea.pop(0)
+                rightHandCorners.pop(0)
                 #augmentedPoses.pop(0)  # maybe not needed.
 
                 # Adding newly acquired data.
@@ -186,40 +193,61 @@ def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, 
                 # This is done only after the pose is augmented.
                     estDepths = depthModel.forward(augPose)
                     neckDepth = estDepths[0].item()
-                    leftHandDepth = estDepths[1].item()
-                    rightHandDepth = estDepths[2].item()
+                    nleftHandDepth = estDepths[1].item()
+                    nrightHandDepth = estDepths[2].item()
+
+                    if np.isnan(nleftHandDepth):
+                        pass
+                    else:
+                        leftHandDepth = nleftHandDepth
+
+                    if np.isnan(nrightHandDepth):
+                        pass
+                    else:
+                        rightHandDepth = nrightHandDepth
 
                 # Hand Extraction.
                 # This is done in the middle frame, after gaussian smoothing.
                     handL = posePredictionsMiddle[0]['keypoints'][9][0:2]       # Coordinates from left wrist.
                     handR = posePredictionsMiddle[0]['keypoints'][10][0:2]      # Coordinates from right wrist.
 
-                    resModifier = 40    ## NEEDS TO CHANGE FOR EACH VIDEO
+                    resModifier = 40    ## NEEDS TO CHANGE FOR EACH VIDEO RESOLUTION
                     modL_ = int(resModifier*leftHandDepth/width)                         # Applying estimated depth modifier for left hand.
                     modR_ = int(resModifier*rightHandDepth/width)                        # Applying estimated depth modifier for right hand.
 
-                    handL_xArea = int(handL[0])-modL_
-                    handL_yArea = int(handL[1])-modL_
-                    handR_xArea = int(handR[0])-modR_
-                    handR_yArea = int(handR[1])-modR_
+                    handL_ULx = int(handL[0])-modL_
+                    handL_ULy = int(handL[1])-modL_
+                    handR_ULx = int(handR[0])-modR_
+                    handR_ULy = int(handR[1])-modR_
 
-                    curLeftHandArea = (handL_xArea,handL_yArea)
-                    curRightHandArea = (handR_xArea,handR_yArea)
+                    curLeftHandCorner = (handL_ULx,handL_ULy)
+                    curRightHandCorner = (handR_ULx,handR_ULy)
 
-                    
                     handL_ = rawWindowFrames[3].copy()[int(handL[1])-modL_:int(handL[1])+modL_,int(handL[0])-modL_:int(handL[0])+modL_]
                     handR_ = rawWindowFrames[3].copy()[int(handR[1])-modR_:int(handR[1])+modR_,int(handR[0])-modR_:int(handR[0])+modR_]
 
+                    cv2.imshow('Right Hand Raw',handR_)
+                    cv2.imshow('Left Hand Raw',handL_)
+
+                    if leftHandLocations[-1] is not None:
+                        prevXMin, prevXMax, prevYMin, prevYMax = leftHandLocations[-1]
+                        prev_ULx, prev_ULy = leftHandCorners[-1]   # Corner of left hand frame in previous frame
+                        handL_ = rawWindowFrames[3].copy()[int(prev_ULy+prevYMin):int(prev_ULy+prevYMax),int(prev_ULx+prevXMin):int(prev_ULx+prevXMax)]
+                        if np.array(handL_).shape[0] == 0 or np.array(handL_).shape[1] == 0:
+                            handL_ = rawWindowFrames[3].copy()[int(handL[1])-modL_:int(handL[1])+modL_,int(handL[0])-modL_:int(handL[0])+modL_]
+                        else:
+                            curLeftHandCorner = (int((prev_ULx+prevXMin)*0.9),int((prev_ULy+prevYMin)*0.9))
+
                     if rightHandLocations[-1] is not None:
                         prevXMin, prevXMax, prevYMin, prevYMax = rightHandLocations[-1]
-                        prev_xArea, prev_yArea = rightHandArea[-1]
-                        handR_ = rawWindowFrames[3].copy()[int(prev_yArea+prevYMin):int(prev_yArea+prevYMax),int(prev_xArea+prevXMin):int(prev_xArea+prevXMax)]
+                        prev_ULx, prev_ULy = rightHandCorners[-1]
+                        handR_ = rawWindowFrames[3].copy()[int(prev_ULy+prevYMin):int(prev_ULy+prevYMax),int(prev_ULx+prevXMin):int(prev_ULx+prevXMax)]
                         if np.array(handR_).shape[0] == 0 or np.array(handR_).shape[1] == 0:
                             handR_ = rawWindowFrames[3].copy()[int(handR[1])-modR_:int(handR[1])+modR_,int(handR[0])-modR_:int(handR[0])+modR_]
                         else:
-                            curRightHandArea = (int((prev_xArea+prevXMin)*0.9),int((prev_yArea+prevYMin)*0.9))
+                            curRightHandCorner = (int((prev_ULx+prevXMin)*0.9),int((prev_ULy+prevYMin)*0.9))
                         
-                    print(np.array(handR_).shape)
+                    #print(np.array(handR_).shape)
                     handL_MP = copy.deepcopy(handL_)
                     handR_MP = copy.deepcopy(handR_)
                     xHandSizeL = np.array(handL_MP).shape[0]
@@ -256,7 +284,7 @@ def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, 
                         #handL_MP_ = handL_MP[int(yMinL):int(yMaxL),int(xMinL):int(xMaxL)]
                         #cv2.imshow('Refocused Left Hand', handL_MP_)
                         handL_ = cv2.rectangle(handL_,(int(xMinL),int(yMinL)),(int(xMaxL),int(yMaxL)),(255,0,0),1)
-                        leftHandLocations.append((xMinL,xMaxL,yMinL,yMaxL))
+                        leftHandLocations.append((xMinL*0.5,xMaxL*1.3,yMinL*0.5,yMaxL*1.3)) # Increasing the size of the box around the hand coordinates.
                     else:
                         leftHandLocations.append(None)
                             
@@ -277,12 +305,12 @@ def main(windowSize=7, device="cpu", visualize = True, jointReplacement = True, 
                         #handR_MP_ = handR_MP[int(yMinR):int(yMaxR),int(xMinR):int(xMaxR)]
                         #cv2.imshow('Refocused Right Hand', handR_MP_)
                         handR_ = cv2.rectangle(handR_,(int(xMinR),int(yMinR)),(int(xMaxR),int(yMaxR)),(0,255,0),1)
-                        rightHandLocations.append((xMinR*0.5,xMaxR*1.3,yMinR*0.5,yMaxR*1.3))
+                        rightHandLocations.append((xMinR*0.5,xMaxR*1.3,yMinR*0.5,yMaxR*1.3)) # Increasing the size of the box around the hand coordinates.
                     else:
                         rightHandLocations.append(None)
                     
-                    leftHandArea.append(curLeftHandArea)
-                    rightHandArea.append(curRightHandArea)
+                    leftHandCorners.append(curLeftHandCorner)
+                    rightHandCorners.append(curRightHandCorner)
 
                     cv2.imshow('Left Hand',handL_)
                     cv2.imshow('Right Hand',handR_)
@@ -409,9 +437,5 @@ def ExtractCoordinatesFromLandmark(hand_landmarks):
     return xMin-0.1, xMax+0.1, yMin-0.1, yMax+0.1   # 5% padding is added to the coordinates to avoid cropping the hand.
 
 if __name__=="__main__":
-    ###
-    mp_drawing = mp.solutions.drawing_utils
-    mp_drawing_styles = mp.solutions.drawing_styles
-    mp_hands = mp.solutions.hands
-    ###
-    main(device="cuda")
+    
+    GestureRecognition(device="cuda")
