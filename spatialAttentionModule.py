@@ -9,7 +9,7 @@ from torch import nn
 from PIL import Image, ImageDraw
 import poseAugmentation as poseAug
 from model import _DetModel, _PoseModel
-from depthEstimator import DepthEstimator
+from customModels import DepthEstimator, StaticGestureRecognizer
 
 def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplacement = True, poseFilter = True, saveOutput = False, outputType = 'compare'):
     # Initialization of parameters and arrays
@@ -18,7 +18,9 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
     windowFrames = []
     windowPoses = []
     posePreds = []
+    normalizedPosePreds = []
     augmentedPoses = []
+    normalizedAugmentedPoses = []
     leftHandLocations = []
     leftHandCorners = []
     rightHandLocations = []
@@ -30,8 +32,8 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
     jointThreshold = 0.3
 
     # Input and output paths.
-    videoFile = "croppedVideos/Underwater01.mp4"
-    outputFile = "croppedVideos/windowTests/Underwater01_vs.mp4"
+    videoFile = "croppedVideos/Underwater07.mp4"
+    outputFile = "croppedVideos/windowTests/Underwater07_vs.mp4"
 
     # Initializing detector and pose estimator.
     detectionModel = _DetModel(device=device)
@@ -49,6 +51,10 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
     depthModel = DepthEstimator()
     depthModel.load_state_dict(torch.load("depthEstimatorModels/depthEstimator02.pth"))
     depthModel.eval()
+
+    # Initializing the static gesture recognizer.
+    staticGestureModel = StaticGestureRecognizer(device="cuda")
+    staticGestureModel.LoadModel(pathfile='trainedModels/inception-v3-tlearning02.pth')
 
     # Initializing video input.
     cap = cv2.VideoCapture(videoFile)
@@ -77,7 +83,8 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
         leftHandCorners.append(None)
         rightHandLocations.append(None)
         rightHandCorners.append(None)
-        
+        normalizedPosePreds.append(None)
+        normalizedAugmentedPoses.append(None)
 
     ###
     with mp_hands.Hands(model_complexity=1,
@@ -110,7 +117,10 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                 leftHandCorners.pop(0)
                 rightHandLocations.pop(0)
                 rightHandCorners.pop(0)
-                #augmentedPoses.pop(0)  # maybe not needed.
+                #augmentedPoses.pop(0)
+
+                leftHandGestureFrame = None
+                rightHandGestureFrame = None
 
                 # Adding newly acquired data.
                 rawWindowFrames.append(frame)
@@ -179,7 +189,7 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                     windowPoses.append(np.zeros((17,3)))
                     posePreds.append(posePredictions)
 
-                # Pose Augmentation.
+                # POSE AUGMENTATION.
                 ## This is done in the middle frame, after gaussian smoothing.
                 if posePreds[3] is not None:
                     augmentedPose = poseAug.augmentPose(copy.deepcopy(posePredictionsMiddle), jointStructure="body")
@@ -189,7 +199,7 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                         for subarray in array:
                             augPose.append(subarray)
 
-                # Depth Estimation.
+                # DEPTH ESTIMATION.
                 # This is done only after the pose is augmented.
                     estDepths = depthModel.forward(augPose)
                     neckDepth = estDepths[0].item()
@@ -197,21 +207,21 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                     nrightHandDepth = estDepths[2].item()
 
                     if np.isnan(nleftHandDepth):
-                        pass
+                        leftHandDepth = 100
                     else:
                         leftHandDepth = nleftHandDepth
 
                     if np.isnan(nrightHandDepth):
-                        pass
+                        rightHandDepth = 100
                     else:
                         rightHandDepth = nrightHandDepth
 
-                # Hand Extraction.
+                # HAND EXTRACTION.
                 # This is done in the middle frame, after gaussian smoothing.
                     handL = posePredictionsMiddle[0]['keypoints'][9][0:2]       # Coordinates from left wrist.
                     handR = posePredictionsMiddle[0]['keypoints'][10][0:2]      # Coordinates from right wrist.
 
-                    resModifier = 40    ## NEEDS TO CHANGE FOR EACH VIDEO RESOLUTION
+                    resModifier = 70    ## NEEDS TO CHANGE FOR EACH VIDEO RESOLUTION
                     modL_ = int(resModifier*leftHandDepth/width)                         # Applying estimated depth modifier for left hand.
                     modR_ = int(resModifier*rightHandDepth/width)                        # Applying estimated depth modifier for right hand.
 
@@ -222,7 +232,6 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
 
                     curLeftHandCorner = (handL_ULx,handL_ULy)
                     curRightHandCorner = (handR_ULx,handR_ULy)
-
                     handL_ = rawWindowFrames[3].copy()[int(handL[1])-modL_:int(handL[1])+modL_,int(handL[0])-modL_:int(handL[0])+modL_]
                     handR_ = rawWindowFrames[3].copy()[int(handR[1])-modR_:int(handR[1])+modR_,int(handR[0])-modR_:int(handR[0])+modR_]
 
@@ -234,20 +243,21 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                         prev_ULx, prev_ULy = leftHandCorners[-1]   # Corner of left hand frame in previous frame
                         handL_ = rawWindowFrames[3].copy()[int(prev_ULy+prevYMin):int(prev_ULy+prevYMax),int(prev_ULx+prevXMin):int(prev_ULx+prevXMax)]
                         if np.array(handL_).shape[0] == 0 or np.array(handL_).shape[1] == 0:
+                            print(f"Left hand image collapsed while zooming on hand. Zooming out.")
                             handL_ = rawWindowFrames[3].copy()[int(handL[1])-modL_:int(handL[1])+modL_,int(handL[0])-modL_:int(handL[0])+modL_]
                         else:
-                            curLeftHandCorner = (int((prev_ULx+prevXMin)*0.9),int((prev_ULy+prevYMin)*0.9))
+                            curLeftHandCorner = (int(prev_ULx+prevXMin*0.2),int(prev_ULy+prevYMin*0.2))
 
                     if rightHandLocations[-1] is not None:
                         prevXMin, prevXMax, prevYMin, prevYMax = rightHandLocations[-1]
                         prev_ULx, prev_ULy = rightHandCorners[-1]
                         handR_ = rawWindowFrames[3].copy()[int(prev_ULy+prevYMin):int(prev_ULy+prevYMax),int(prev_ULx+prevXMin):int(prev_ULx+prevXMax)]
                         if np.array(handR_).shape[0] == 0 or np.array(handR_).shape[1] == 0:
+                            print(f"Right hand image collapsed while zooming on hand. Zooming out.")
                             handR_ = rawWindowFrames[3].copy()[int(handR[1])-modR_:int(handR[1])+modR_,int(handR[0])-modR_:int(handR[0])+modR_]
                         else:
-                            curRightHandCorner = (int((prev_ULx+prevXMin)*0.9),int((prev_ULy+prevYMin)*0.9))
+                            curRightHandCorner = (int(prev_ULx+prevXMin*0.2),int(prev_ULy+prevYMin*0.2))
                         
-                    #print(np.array(handR_).shape)
                     handL_MP = copy.deepcopy(handL_)
                     handR_MP = copy.deepcopy(handR_)
                     xHandSizeL = np.array(handL_MP).shape[0]
@@ -265,9 +275,8 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                     handL_ = cv2.cvtColor(handL_, cv2.COLOR_RGB2BGR)
                     handR_ = cv2.cvtColor(handR_, cv2.COLOR_RGB2BGR)
 
-                    #xMax, xMin, yMax, yMin = [0]*4
-
                     if resultsL_.multi_hand_landmarks:
+                        leftHandGestureFrame = copy.deepcopy(handL_)
                         for hand_landmarks in resultsL_.multi_hand_landmarks:
                             xMinL, xMaxL, yMinL, yMaxL = ExtractCoordinatesFromLandmark(hand_landmarks)
                             xMinL *= xHandSizeL
@@ -281,14 +290,16 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                                                       mp_drawing_styles.get_default_hand_landmarks_style(),
                                                       mp_drawing_styles.get_default_hand_connections_style())
                         
-                        #handL_MP_ = handL_MP[int(yMinL):int(yMaxL),int(xMinL):int(xMaxL)]
-                        #cv2.imshow('Refocused Left Hand', handL_MP_)
+
+                        leftHandGestureFrame = leftHandGestureFrame[max([int(yMinL),0]):int(yMaxL),max([int(xMinL),0]):int(xMaxL)]
+                        cv2.imshow('Left Hand Gesture Frame',leftHandGestureFrame)
                         handL_ = cv2.rectangle(handL_,(int(xMinL),int(yMinL)),(int(xMaxL),int(yMaxL)),(255,0,0),1)
-                        leftHandLocations.append((xMinL*0.5,xMaxL*1.3,yMinL*0.5,yMaxL*1.3)) # Increasing the size of the box around the hand coordinates.
+                        leftHandLocations.append((xMinL*0.5,xMaxL*1.5,yMinL*0.5,yMaxL*1.5)) # Increasing the size of the box around the hand coordinates.
                     else:
                         leftHandLocations.append(None)
                             
                     if resultsR_.multi_hand_landmarks:
+                        rightHandGestureFrame = copy.deepcopy(handR_)
                         for hand_landmarks in resultsR_.multi_hand_landmarks:
                             xMinR, xMaxR, yMinR, yMaxR = ExtractCoordinatesFromLandmark(hand_landmarks)
                             xMinR *= xHandSizeR
@@ -302,10 +313,11 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                                                       mp_drawing_styles.get_default_hand_landmarks_style(),
                                                       mp_drawing_styles.get_default_hand_connections_style())
                         
-                        #handR_MP_ = handR_MP[int(yMinR):int(yMaxR),int(xMinR):int(xMaxR)]
-                        #cv2.imshow('Refocused Right Hand', handR_MP_)
+
+                        rightHandGestureFrame = rightHandGestureFrame[max([int(yMinR),0]):int(yMaxR),max([int(xMinR),0]):int(xMaxR)]
+                        cv2.imshow('Right Hand Gesture Frame',rightHandGestureFrame)
                         handR_ = cv2.rectangle(handR_,(int(xMinR),int(yMinR)),(int(xMaxR),int(yMaxR)),(0,255,0),1)
-                        rightHandLocations.append((xMinR*0.5,xMaxR*1.3,yMinR*0.5,yMaxR*1.3)) # Increasing the size of the box around the hand coordinates.
+                        rightHandLocations.append((xMinR*0.5,xMaxR*1.5,yMinR*0.5,yMaxR*1.5)) # Increasing the size of the box around the hand coordinates.
                     else:
                         rightHandLocations.append(None)
                     
@@ -316,9 +328,23 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                     cv2.imshow('Right Hand',handR_)
                     ###
 
+                # STATIC HAND GESTURE RECOGNITION.
 
-                # Pose Normalization.
+                if leftHandGestureFrame is not None:
+                    print("--- Left Hand Gesture ---")
+                    staticGestureModel.LoadArray(leftHandGestureFrame)
+                    staticGestureModel.forward
+
+                if rightHandGestureFrame is not None:
+                    print("--- Right Hand Gesture ---")
+                    staticGestureModel.LoadArray(rightHandGestureFrame)
+                    staticGestureModel.forward()
+
+                # POSE NORMALIZATION.
                 # This is done only after the depth is estimated.
+                if posePreds[3] is not None:
+                    normalizedPosePreds.pop(0)
+                    normalizedAugmentedPoses.pop(0)
                     neckX = (posePredictionsMiddle[0]['keypoints'][5][0]+posePredictionsMiddle[0]['keypoints'][6][0])/2
                     neckY = (posePredictionsMiddle[0]['keypoints'][5][1]+posePredictionsMiddle[0]['keypoints'][6][1])/2
 
@@ -348,6 +374,17 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
 
                     posePredictionsMiddle[0]['keypoints'] = (posePredictionsMiddle[0]['keypoints']-np.array([neckX-width/2,neckY-height/3,0]))#/[xScale, yScale, 1]
 
+                    normalizedPosePreds.append(posePredictionsMiddle[0]['keypoints'])
+
+                    NormalizedAugmentedPose = poseAug.augmentPose(copy.deepcopy(posePredictionsMiddle), jointStructure="body")
+                    
+                    normAugPose = []
+                    for array in NormalizedAugmentedPose:
+                        for subarray in array:
+                            normAugPose.append(subarray)
+
+                    normalizedAugmentedPoses.append(normAugPose)
+
                     bboxFrame = np.zeros((height,width,3),dtype=np.uint8)
                     posePredictionsMiddle[0].pop('bbox')
                     test = poseModel.visualize_pose_results(bboxFrame,
@@ -357,8 +394,13 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                                                             2
                                                             )
                     cv2.imshow('Test',cv2.resize(test,(int(width*0.5),int(height*0.5)),interpolation=cv2.INTER_AREA))
+                
+                # DYNAMIC POSE AUGMENTATION.
+                # 
+                if normalizedPosePreds[0] is not None:
+                    poseAug.augmentPoseDynamic(normalizedAugmentedPoses)
 
-                # Visualization.
+                # VISUALIZATION.
                 row1 = np.concatenate(windowFrames[:3], axis=1)
                 row2 = np.concatenate([np.zeros((height,width,3),dtype=np.uint8),windowFrames[3],np.zeros((height,width,3),dtype=np.uint8)], axis=1)
                 row3 = np.concatenate(windowFrames[4:], axis=1)
@@ -369,7 +411,7 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                 resizedDisplay = cv2.resize(completeDisplay, (resizedWidth,resizedHeight), interpolation=cv2.INTER_AREA)
                 cv2.imshow('Frame',resizedDisplay)
 
-                # Saving output.
+                # OUTPUT.
                 if saveOutput:
                     if outputType == 'solo':
                         focusFrame = 3
@@ -429,11 +471,6 @@ def ExtractCoordinatesFromLandmark(hand_landmarks):
             yMax = coordinates.y
         if yMin is None or yMin > coordinates.y:
             yMin = coordinates.y #if coordinates.y > 0 else yMin
-    #xMin = xMin-0.05 if xMin >0.05 else xMin
-    #xMax = xMax+0.05 if xMax <0.95 else xMax
-    #yMin = yMin-0.05 if yMin >0.05 else yMin
-    #yMax = yMax+0.05 if yMax <0.95 else yMax
-    #return xMin, xMax, yMin, yMax   # 5% padding is added to the coordinates to avoid cropping the hand.
     return xMin-0.1, xMax+0.1, yMin-0.1, yMax+0.1   # 5% padding is added to the coordinates to avoid cropping the hand.
 
 if __name__=="__main__":

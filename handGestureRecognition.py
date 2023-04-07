@@ -50,5 +50,5 @@ def LoadImage(pathfile):
 
 if __name__=='__main__':
 
-    SAM(device='cuda')
+    GR(device='cuda')
     #GestureRecognition()

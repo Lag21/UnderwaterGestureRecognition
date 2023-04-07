@@ -1,6 +1,16 @@
 import numpy as np
 from PIL import Image, ImageDraw
 
+def augmentPoseDynamic(augmentedPoseWindow, jointStructure='body'):
+    for i, joint in enumerate(augmentedPoseWindow[3][:21]):
+        velJoint = augmentedPoseWindow[4][i] - augmentedPoseWindow[2][i] # dP_k = P_(k+1) - P_(k-1)
+        accJoint = augmentedPoseWindow[5][i] + augmentedPoseWindow[1][i] - 2*joint # d2P_k = P_(k+2) + P_(k-2) - 2P_k
+        augmentedPoseWindow[3].append(velJoint)
+        augmentedPoseWindow[3].append(accJoint)
+
+    #return posePlusDynamic
+
+
 def augmentPose(pose_preds, jointStructure='body'):
     posePlus = []
 
