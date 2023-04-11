@@ -76,15 +76,13 @@ def main():
 
         if ret:            
             det_preds, detection_visualization = det_model.run(args.detector_name, np.asarray(frame), args.vis_det_score_threshold)
-            posePredictions, poseVisualization = poseModel.run('ViTPose+-B-Hand',             #PoseModel
+            posePredictions, poseVisualization = poseModel.run('WholeBody-V+S',             #PoseModel
                                                                 np.asarray(frame),       #Input
                                                                 det_preds,    #Detected Human Box
                                                                 0.3,                     #Detection Threshold
                                                                 0.1,          #Keypoint Visualization Threshold
                                                                 4,                       #Keypoint Radius
                                                                 2)                       #Line Thickness
-            
-            print(posePredictions)
             
             cv2.imshow('Frame',poseVisualization)
             output.write(poseVisualization)

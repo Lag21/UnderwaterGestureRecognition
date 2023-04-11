@@ -11,7 +11,19 @@ import poseAugmentation as poseAug
 from model import _DetModel, _PoseModel
 from customModels import DepthEstimator, StaticGestureRecognizer
 
-def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplacement = True, poseFilter = True, saveOutput = False, outputType = 'compare'):
+## TO DO - TUESDAY:
+## Test hand extraction improvements on more videos of new dataset.
+## Finish implementing dynamic model.
+## Perform sample training on dynamic model.
+
+def GestureRecognition(windowSize=7,
+                       device="cpu",
+                       visualize = True,
+                       jointReplacement = True,
+                       poseFilter = True,
+                       saveOutput = False,
+                       outputType = 'compare',
+                       handTracking = 'whole_image'):
     # Initialization of parameters and arrays
     rawWindowFrames = []
     rawPoseVisualizations = []
@@ -19,7 +31,6 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
     windowPoses = []
     posePreds = []
     normalizedPosePreds = []
-    augmentedPoses = []
     normalizedAugmentedPoses = []
     leftHandLocations = []
     leftHandCorners = []
@@ -31,9 +42,15 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
     maxConsecutiveReplacements = 7
     jointThreshold = 0.3
 
+    if handTracking=='whole_image':
+        leftHandCoordinates = []
+        rightHandCoordinates = []
+        leftHandMisdetections = 0
+        rightHandMisdetections = 0
+
     # Input and output paths.
-    videoFile = "croppedVideos/Underwater07.mp4"
-    outputFile = "croppedVideos/windowTests/Underwater07_vs.mp4"
+    videoFile = "croppedVideos/ChaLearn01.mp4"
+    outputFile = "croppedVideos/windowTests/ChaLearn01_vs.mp4"
 
     # Initializing detector and pose estimator.
     detectionModel = _DetModel(device=device)
@@ -73,22 +90,20 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
 
     # Initializing the window.
     for i in range(windowSize):
-        rawWindowFrames.append(np.zeros((height,width,3),dtype=np.uint8))
-        windowFrames.append(np.zeros((height,width,3),dtype=np.uint8))
-        windowPoses.append(np.zeros((17,3)))
-        posePreds.append(None)
-        rawPoseVisualizations.append(np.zeros((height,width,3),dtype=np.uint8))
-        augmentedPoses.append(None)
+
         leftHandLocations.append(None)
         leftHandCorners.append(None)
         rightHandLocations.append(None)
         rightHandCorners.append(None)
+
         normalizedPosePreds.append(None)
         normalizedAugmentedPoses.append(None)
 
+    hands = 2 if handTracking == 'whole_image' else 1
+
     ###
     with mp_hands.Hands(model_complexity=1,
-                    max_num_hands=1,
+                    max_num_hands=hands,
                     min_detection_confidence=0.5,
                     min_tracking_confidence=0.5) as hands:
     ###
@@ -107,24 +122,20 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                                                                     4,                       #Keypoint Radius
                                                                     2)                       #Line Thickness
                 
-                # Removing the information from the first frame of the window (now outside).
-                rawWindowFrames.pop(0)
-                rawPoseVisualizations.pop(0)
-                windowFrames.pop(0)
-                windowPoses.pop(0)
-                posePreds.pop(0)
-                leftHandLocations.pop(0)
-                leftHandCorners.pop(0)
-                rightHandLocations.pop(0)
-                rightHandCorners.pop(0)
-                #augmentedPoses.pop(0)
+                # Checking if the window for frames needs to be initialized.
+                if len(rawWindowFrames) == 0:
+                    rawWindowFrames = [frame]*7
+                    rawPoseVisualizations = [poseVisualization]*7
+                # If not, remove the first element from the window and add the current information at the end.
+                else:
+                    rawWindowFrames.pop(0)
+                    rawWindowFrames.append(frame)
+
+                    rawPoseVisualizations.pop(0)
+                    rawPoseVisualizations.append(poseVisualization)
 
                 leftHandGestureFrame = None
                 rightHandGestureFrame = None
-
-                # Adding newly acquired data.
-                rawWindowFrames.append(frame)
-                rawPoseVisualizations.append(poseVisualization)
 
                 # Dealing with the lack of human detection in the frame:
                 if len(posePredictions) == 0 and misdetectionCounter < maxConsecutiveReplacements:
@@ -141,8 +152,18 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
 
                 try:
                     posePredictions[0]['keypoints'][keypointNumber:,2] = 0    # Cleaning up pose keypoints to exclude lower body.
-                    windowPoses.append(posePredictions[0]['keypoints'])
-                    posePreds.append(posePredictions)
+
+                    # Checking if the window for poses needs to be initialized:
+                    if len(windowPoses) == 0:
+                        windowPoses = [posePredictions[0]['keypoints']]*7
+                        posePreds = [posePredictions]*7
+                    # If not, remove the first element from the window and add the current information at the end.
+                    else:
+                        windowPoses.pop(0)
+                        windowPoses.append(posePredictions[0]['keypoints'])
+
+                        posePreds.pop(0)
+                        posePreds.append(posePredictions)
 
                     # Check if there are any missing / below threshold keypoints on Last Frame:
                     if jointReplacement:
@@ -161,6 +182,19 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                         # Update pose results on Last Frame for visualization:
                         posePredictions[0]['keypoints'] = windowPoses[-1]
 
+                    poseVisLast = poseModel.visualize_pose_results(np.asarray(frame),
+                                                            posePredictions,
+                                                            jointThreshold,
+                                                            4,
+                                                            2
+                                                            )
+                    
+                    if len(windowFrames) == 0:
+                        windowFrames = [poseVisLast]*7
+                    else:
+                        windowFrames.pop(0)
+                        windowFrames.append(poseVisLast)
+
                     if poseFilter:
                         # Gaussian Smoothing on Middle Frame
                         if posePreds[3] is not None:
@@ -176,18 +210,27 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                                                             )
                             windowFrames[3] = poseVisMiddle
 
-                    poseVisLast = poseModel.visualize_pose_results(np.asarray(frame),
-                                                            posePredictions,
-                                                            jointThreshold,
-                                                            4,
-                                                            2
-                                                            )
-                    windowFrames.append(poseVisLast)
                 except Exception as e:
                     print(f"Unexpected {e}, {type(e)}")
-                    windowFrames.append(poseVisualization)
-                    windowPoses.append(np.zeros((17,3)))
-                    posePreds.append(posePredictions)
+                    
+                    # Checking if the window for poses needs to be initialized:
+                    if len(windowPoses) == 0:
+                        windowPoses = [np.zeros((17,3))]*7
+                        posePreds = [posePredictions]*7
+                        windowFrames = [poseVisualization]*7
+                    # If not, remove the first element from the window and add the current information at the end.
+                    else:
+                        windowPoses.pop(0)
+                        windowPoses.append(np.zeros((17,3)))
+
+                        posePreds.pop(0)
+                        posePreds.append(posePredictions)
+
+                        windowFrames.pop(0)
+                        windowFrames.append(poseVisualization)
+
+                    #windowPoses.append(np.zeros((17,3)))
+                    #posePreds.append(posePredictions)
 
                 # POSE AUGMENTATION.
                 ## This is done in the middle frame, after gaussian smoothing.
@@ -218,115 +261,251 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
 
                 # HAND EXTRACTION.
                 # This is done in the middle frame, after gaussian smoothing.
-                    handL = posePredictionsMiddle[0]['keypoints'][9][0:2]       # Coordinates from left wrist.
-                    handR = posePredictionsMiddle[0]['keypoints'][10][0:2]      # Coordinates from right wrist.
+                    if handTracking == 'whole_image':
+                        wholeImage = copy.deepcopy(rawWindowFrames[3])
+                        wholeImage = cv2.cvtColor(wholeImage, cv2.COLOR_BGR2RGB)
+                        resultsWholeImage = hands.process(wholeImage)
+                        wholeImage = cv2.cvtColor(wholeImage, cv2.COLOR_RGB2BGR)
 
-                    resModifier = 70    ## NEEDS TO CHANGE FOR EACH VIDEO RESOLUTION
-                    modL_ = int(resModifier*leftHandDepth/width)                         # Applying estimated depth modifier for left hand.
-                    modR_ = int(resModifier*rightHandDepth/width)                        # Applying estimated depth modifier for right hand.
+                        width_, height_, _ = np.shape(wholeImage)
 
-                    handL_ULx = int(handL[0])-modL_
-                    handL_ULy = int(handL[1])-modL_
-                    handR_ULx = int(handR[0])-modR_
-                    handR_ULy = int(handR[1])-modR_
-
-                    curLeftHandCorner = (handL_ULx,handL_ULy)
-                    curRightHandCorner = (handR_ULx,handR_ULy)
-                    handL_ = rawWindowFrames[3].copy()[int(handL[1])-modL_:int(handL[1])+modL_,int(handL[0])-modL_:int(handL[0])+modL_]
-                    handR_ = rawWindowFrames[3].copy()[int(handR[1])-modR_:int(handR[1])+modR_,int(handR[0])-modR_:int(handR[0])+modR_]
-
-                    cv2.imshow('Right Hand Raw',handR_)
-                    cv2.imshow('Left Hand Raw',handL_)
-
-                    if leftHandLocations[-1] is not None:
-                        prevXMin, prevXMax, prevYMin, prevYMax = leftHandLocations[-1]
-                        prev_ULx, prev_ULy = leftHandCorners[-1]   # Corner of left hand frame in previous frame
-                        handL_ = rawWindowFrames[3].copy()[int(prev_ULy+prevYMin):int(prev_ULy+prevYMax),int(prev_ULx+prevXMin):int(prev_ULx+prevXMax)]
-                        if np.array(handL_).shape[0] == 0 or np.array(handL_).shape[1] == 0:
-                            print(f"Left hand image collapsed while zooming on hand. Zooming out.")
-                            handL_ = rawWindowFrames[3].copy()[int(handL[1])-modL_:int(handL[1])+modL_,int(handL[0])-modL_:int(handL[0])+modL_]
-                        else:
-                            curLeftHandCorner = (int(prev_ULx+prevXMin*0.2),int(prev_ULy+prevYMin*0.2))
-
-                    if rightHandLocations[-1] is not None:
-                        prevXMin, prevXMax, prevYMin, prevYMax = rightHandLocations[-1]
-                        prev_ULx, prev_ULy = rightHandCorners[-1]
-                        handR_ = rawWindowFrames[3].copy()[int(prev_ULy+prevYMin):int(prev_ULy+prevYMax),int(prev_ULx+prevXMin):int(prev_ULx+prevXMax)]
-                        if np.array(handR_).shape[0] == 0 or np.array(handR_).shape[1] == 0:
-                            print(f"Right hand image collapsed while zooming on hand. Zooming out.")
-                            handR_ = rawWindowFrames[3].copy()[int(handR[1])-modR_:int(handR[1])+modR_,int(handR[0])-modR_:int(handR[0])+modR_]
-                        else:
-                            curRightHandCorner = (int(prev_ULx+prevXMin*0.2),int(prev_ULy+prevYMin*0.2))
+                        leftHandDetection = False
+                        rightHandDetection = False
+                        leftHandCloseness = 1
+                        rightHandCloseness = 1
                         
-                    handL_MP = copy.deepcopy(handL_)
-                    handR_MP = copy.deepcopy(handR_)
-                    xHandSizeL = np.array(handL_MP).shape[0]
-                    yHandSizeL = np.array(handL_MP).shape[1]
-                    xHandSizeR = np.array(handR_MP).shape[1]
-                    yHandSizeR = np.array(handR_MP).shape[0]
-                    
-                    ###
-                    handL_ = cv2.cvtColor(handL_, cv2.COLOR_BGR2RGB)
-                    handR_ = cv2.cvtColor(handR_, cv2.COLOR_BGR2RGB)
+                        if resultsWholeImage.multi_hand_landmarks:
+                            for hand_landmarks, handedness in zip(resultsWholeImage.multi_hand_landmarks, resultsWholeImage.multi_handedness):
+                                # Note: Handedness is switched in MediaPipe.
+                                xMin, xMax, yMin, yMax, xCenter, yCenter = ExtractCoordinatesFromLandmark(hand_landmarks, handTracking)
 
-                    resultsL_ = hands.process(handL_)
-                    resultsR_ = hands.process(handR_)
+                                if xMax-xMin > yMax-yMin:
+                                    yMin = yCenter - (xMax-xMin)/2
+                                    yMax = yCenter + (xMax-xMin)/2
+                                elif xMax-xMin < yMax-yMin:
+                                    xMin = xCenter - (yMax-yMin)/2
+                                    xMax = xCenter + (yMax-yMin)/2
 
-                    handL_ = cv2.cvtColor(handL_, cv2.COLOR_RGB2BGR)
-                    handR_ = cv2.cvtColor(handR_, cv2.COLOR_RGB2BGR)
+                                # Check closeness  to previous left/right hand detections.
+                                if len(leftHandCoordinates) > 0:
+                                    xMin_, xMax_, yMin_, yMax_, xCenter_, yCenter_ = leftHandCoordinates[-1]
+                                    leftHandCloseness = 1-(abs(xCenter_-xCenter))/xCenter_
+                                    #print(leftHandCloseness)
+                                if len(rightHandCoordinates) > 0:
+                                    xMin_, xMax_, yMin_, yMax_, xCenter_, yCenter_ = rightHandCoordinates[-1]
+                                    rightHandCloseness = 1-(abs(xCenter_-xCenter))/xCenter_
 
-                    if resultsL_.multi_hand_landmarks:
-                        leftHandGestureFrame = copy.deepcopy(handL_)
-                        for hand_landmarks in resultsL_.multi_hand_landmarks:
-                            xMinL, xMaxL, yMinL, yMaxL = ExtractCoordinatesFromLandmark(hand_landmarks)
-                            xMinL *= xHandSizeL
-                            xMaxL *= xHandSizeL
-                            yMinL *= yHandSizeL
-                            yMaxL *= yHandSizeL
-
-                            mp_drawing.draw_landmarks(handL_,
-                                                      hand_landmarks,
-                                                      mp_hands.HAND_CONNECTIONS,
-                                                      mp_drawing_styles.get_default_hand_landmarks_style(),
-                                                      mp_drawing_styles.get_default_hand_connections_style())
-                        
-
-                        leftHandGestureFrame = leftHandGestureFrame[max([int(yMinL),0]):int(yMaxL),max([int(xMinL),0]):int(xMaxL)]
-                        cv2.imshow('Left Hand Gesture Frame',leftHandGestureFrame)
-                        handL_ = cv2.rectangle(handL_,(int(xMinL),int(yMinL)),(int(xMaxL),int(yMaxL)),(255,0,0),1)
-                        leftHandLocations.append((xMinL*0.5,xMaxL*1.5,yMinL*0.5,yMaxL*1.5)) # Increasing the size of the box around the hand coordinates.
-                    else:
-                        leftHandLocations.append(None)
+                                if handedness.classification[0].label == 'Right' and leftHandDetection == False and leftHandCloseness > 0.9:
+                                    if len(leftHandCoordinates) == 0:
+                                        leftHandCoordinates = [[xMin, xMax, yMin, yMax, xCenter, yCenter]] * 3
+                                        leftHandMisdetections = 0
+                                        leftHandLabel = handedness.classification[0].label
+                                    else:
+                                        leftHandCoordinates.pop(0)
+                                        leftHandCoordinates.append([xMin, xMax, yMin, yMax, xCenter, yCenter])
+                                        leftHandDetection = True
+                                        leftHandMisdetections = 0
+                                        leftHandLabel = handedness.classification[0].label
+                                
+                                    mp_drawing.draw_landmarks(wholeImage,
+                                                            hand_landmarks,
+                                                            mp_hands.HAND_CONNECTIONS,
+                                                            mp_drawing_styles.get_default_hand_landmarks_style(),
+                                                            mp_drawing_styles.get_default_hand_connections_style())
+                                    
+                                    wholeImage = cv2.rectangle(wholeImage,(int(xMin*height_),int(yMin*width_)),(int(xMax*height_),int(yMax*width_)),(255,255,255),1)
+                                    
+                                if handedness.classification[0].label == 'Left' and rightHandDetection == False and rightHandCloseness > 0.9:
+                                    if len(rightHandCoordinates) == 0:
+                                        rightHandCoordinates = [[xMin, xMax, yMin, yMax, xCenter, yCenter]] * 3
+                                        rightHandMisdetections = 0
+                                        rightHandLabel = handedness.classification[0].label
+                                    else:
+                                        rightHandCoordinates.pop(0)
+                                        rightHandCoordinates.append([xMin, xMax, yMin, yMax, xCenter, yCenter])
+                                        rightHandDetection = True
+                                        rightHandMisdetections = 0
+                                        rightHandLabel = handedness.classification[0].label
+                                
+                                    mp_drawing.draw_landmarks(wholeImage,
+                                                            hand_landmarks,
+                                                            mp_hands.HAND_CONNECTIONS,
+                                                            mp_drawing_styles.get_default_hand_landmarks_style(),
+                                                            mp_drawing_styles.get_default_hand_connections_style())
                             
-                    if resultsR_.multi_hand_landmarks:
-                        rightHandGestureFrame = copy.deepcopy(handR_)
-                        for hand_landmarks in resultsR_.multi_hand_landmarks:
-                            xMinR, xMaxR, yMinR, yMaxR = ExtractCoordinatesFromLandmark(hand_landmarks)
-                            xMinR *= xHandSizeR
-                            xMaxR *= xHandSizeR
-                            yMinR *= yHandSizeR
-                            yMaxR *= yHandSizeR
+                                    
+                            if rightHandDetection == False and rightHandMisdetections < 3 and len(rightHandCoordinates) > 0:
+                                rightHandCoordinates.pop(0)
+                                deltaHand = np.array(rightHandCoordinates[1])-np.array(rightHandCoordinates[0])
+                                rightHandCoordinates.append(list(np.array(rightHandCoordinates[-1])+deltaHand))
+                                rightHandMisdetections += 1
+                                print(f'Replaced right hand coordinates for {rightHandMisdetections} consecutive times:')
+                            elif rightHandMisdetections >= 3:
+                                rightHandCoordinates = []
 
-                            mp_drawing.draw_landmarks(handR_,
-                                                      hand_landmarks,
-                                                      mp_hands.HAND_CONNECTIONS,
-                                                      mp_drawing_styles.get_default_hand_landmarks_style(),
-                                                      mp_drawing_styles.get_default_hand_connections_style())
+                            if leftHandDetection == False and leftHandMisdetections < 3 and len(leftHandCoordinates) > 0:
+                                leftHandCoordinates.pop(0)
+                                deltaHand = np.array(leftHandCoordinates[1])-np.array(leftHandCoordinates[0])
+                                leftHandCoordinates.append(list(np.array(leftHandCoordinates[-1])+deltaHand))
+                                leftHandMisdetections += 1
+                                print(f'Replaced left hand coordinates for {leftHandMisdetections} consecutive times.')
+                            elif leftHandMisdetections >= 3:
+                                leftHandCoordinates = []
+
+                            if len(rightHandCoordinates) > 0:
+                                xMin, xMax, yMin, yMax, _, _ = rightHandCoordinates[-1]
+                                wholeImage = cv2.rectangle(wholeImage,(int(xMin*height_),int(yMin*width_)),(int(xMax*height_),int(yMax*width_)),(255,255,255),1)
+                                wholeImage = cv2.putText(wholeImage, rightHandLabel,(int(xMin*height_),int(yMin*width_)),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,0),2,cv2.LINE_AA)
+
+                            if len(leftHandCoordinates) > 0:
+                                xMin, xMax, yMin, yMax, _, _ = leftHandCoordinates[-1]
+                                wholeImage = cv2.rectangle(wholeImage,(int(xMin*height_),int(yMin*width_)),(int(xMax*height_),int(yMax*width_)),(255,255,255),1)
+                                wholeImage = cv2.putText(wholeImage, leftHandLabel,(int(xMin*height_),int(yMin*width_)),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,0),2,cv2.LINE_AA)
+
+                        cv2.imshow('Whole Image Hand Tracking', wholeImage)
+
+                    elif handTracking == 'individual_image':
+                        leftHandLocations.pop(0)
+                        leftHandCorners.pop(0)
+                        rightHandLocations.pop(0)
+                        rightHandCorners.pop(0)
+                
+                        handL = posePredictionsMiddle[0]['keypoints'][9][0:2]       # Coordinates from left wrist.
+                        handR = posePredictionsMiddle[0]['keypoints'][10][0:2]      # Coordinates from right wrist.
+
+                        resModifier = 300    ## NEEDS TO CHANGE FOR EACH VIDEO RESOLUTION
+                        modL_ = int(resModifier*leftHandDepth/width)                         # Applying estimated depth modifier for left hand.
+                        modR_ = int(resModifier*rightHandDepth/width)                        # Applying estimated depth modifier for right hand.
+
+                        handL_ULx = int(handL[0])-modL_
+                        handL_ULy = int(handL[1])-modL_
+                        handR_ULx = int(handR[0])-modR_
+                        handR_ULy = int(handR[1])-modR_
+
+                        curLeftHandCorner = (handL_ULx,handL_ULy)
+                        curRightHandCorner = (handR_ULx,handR_ULy)
+                        handL_ = rawWindowFrames[3].copy()[max(int(handL[1])-modL_,0):int(handL[1])+modL_,max(int(handL[0])-modL_,0):int(handL[0])+modL_]
+                        handR_ = rawWindowFrames[3].copy()[max(int(handR[1])-modR_,0):int(handR[1])+modR_,max(int(handR[0])-modR_,0):int(handR[0])+modR_]
+
+                        cv2.imshow('Right Hand Raw',handR_)
+                        cv2.imshow('Left Hand Raw',handL_)
+
+                        # 'Smart' tracking of hands.
+
+                        if leftHandLocations[-1] is not None:
+                            prevXMin, prevXMax, prevYMin, prevYMax = leftHandLocations[-1]
+                            prev_ULx, prev_ULy = leftHandCorners[-1]   # Corner of left hand frame in previous frame
+                            #handL_ = rawWindowFrames[3].copy()[int(prev_ULy+prevYMin):int(prev_ULy+prevYMax),int(prev_ULx+prevXMin):int(prev_ULx+prevXMax)]
+                            if np.array(handL_).shape[0] == 0 or np.array(handL_).shape[1] == 0:
+                                print(f"Left hand image collapsed while zooming on hand. Zooming out.")
+                                handL_ = rawWindowFrames[3].copy()[int(handL[1])-modL_:int(handL[1])+modL_,int(handL[0])-modL_:int(handL[0])+modL_]
+                            else:
+                                curLeftHandCorner = (int(prev_ULx+prevXMin*0.2),int(prev_ULy+prevYMin*0.2))
+
+                        if rightHandLocations[-1] is not None:
+                            prevXMin, prevXMax, prevYMin, prevYMax = rightHandLocations[-1]
+                            prev_ULx, prev_ULy = rightHandCorners[-1]
+                            #handR_ = rawWindowFrames[3].copy()[int(prev_ULy+prevYMin):int(prev_ULy+prevYMax),int(prev_ULx+prevXMin):int(prev_ULx+prevXMax)]
+                            if np.array(handR_).shape[0] == 0 or np.array(handR_).shape[1] == 0:
+                                print(f"Right hand image collapsed while zooming on hand. Zooming out.")
+                                handR_ = rawWindowFrames[3].copy()[int(handR[1])-modR_:int(handR[1])+modR_,int(handR[0])-modR_:int(handR[0])+modR_]
+                            else:
+                                curRightHandCorner = (int(prev_ULx+prevXMin*0.2),int(prev_ULy+prevYMin*0.2))
+                            
+                        handL_MP = copy.deepcopy(handL_)
+                        handR_MP = copy.deepcopy(handR_)
+                        xHandSizeL = np.array(handL_MP).shape[0]
+                        yHandSizeL = np.array(handL_MP).shape[1]
+                        xHandSizeR = np.array(handR_MP).shape[1]
+                        yHandSizeR = np.array(handR_MP).shape[0]
                         
+                        ###
+                        handL_ = cv2.cvtColor(handL_, cv2.COLOR_BGR2RGB)
+                        handR_ = cv2.cvtColor(handR_, cv2.COLOR_BGR2RGB)
 
-                        rightHandGestureFrame = rightHandGestureFrame[max([int(yMinR),0]):int(yMaxR),max([int(xMinR),0]):int(xMaxR)]
-                        cv2.imshow('Right Hand Gesture Frame',rightHandGestureFrame)
-                        handR_ = cv2.rectangle(handR_,(int(xMinR),int(yMinR)),(int(xMaxR),int(yMaxR)),(0,255,0),1)
-                        rightHandLocations.append((xMinR*0.5,xMaxR*1.5,yMinR*0.5,yMaxR*1.5)) # Increasing the size of the box around the hand coordinates.
-                    else:
-                        rightHandLocations.append(None)
-                    
-                    leftHandCorners.append(curLeftHandCorner)
-                    rightHandCorners.append(curRightHandCorner)
+                        #image_bw = cv2.cvtColor(handL_, cv2.COLOR_BGR2GRAY)
+                        #clahe = cv2.createCLAHE(clipLimit = 5)  ##
+                        #final_img = clahe.apply(image_bw) + 30  ##
+                        #print(np.shape(final_img))
+                        #stacked_img = np.stack((final_img,)*3, axis=-1)
+                        #print(np.shape(stacked_img))
+                        #resultsL_ = hands.process(stacked_img)    ##
+                        #handL_ = cv2.cvtColor(final_img, cv2.COLOR_GRAY2BGR)
 
-                    cv2.imshow('Left Hand',handL_)
-                    cv2.imshow('Right Hand',handR_)
-                    ###
+                        resultsL_ = hands.process(handL_)
+                        resultsR_ = hands.process(handR_)
+
+                        handL_ = cv2.cvtColor(handL_, cv2.COLOR_RGB2BGR)
+                        handR_ = cv2.cvtColor(handR_, cv2.COLOR_RGB2BGR)
+
+                        skipFrame = False
+
+                        if resultsL_.multi_hand_landmarks:
+                            leftHandGestureFrame = copy.deepcopy(handL_)
+                            for hand_landmarks in resultsL_.multi_hand_landmarks:
+                                xMinL, xMaxL, yMinL, yMaxL = ExtractCoordinatesFromLandmark(hand_landmarks, handTracking)
+                                xMinL *= xHandSizeL
+                                xMaxL *= xHandSizeL
+                                yMinL *= yHandSizeL
+                                yMaxL *= yHandSizeL
+
+                                mp_drawing.draw_landmarks(handL_,
+                                                        hand_landmarks,
+                                                        mp_hands.HAND_CONNECTIONS,
+                                                        mp_drawing_styles.get_default_hand_landmarks_style(),
+                                                        mp_drawing_styles.get_default_hand_connections_style())
+                            
+                            print(xMinL, xMaxL, yMinL, yMaxL)
+                            print(np.shape(leftHandGestureFrame))
+                            xBound = np.shape(leftHandGestureFrame)[1]
+                            yBound = np.shape(leftHandGestureFrame)[0]
+                            print(max([int(yMinL),0]))
+                            print(min([int(yMaxL),yBound]))
+                            print(max([int(xMinL),0]))
+                            print(min([int(xMaxL),xBound]))
+                            
+                            if max([int(yMinL),0]) >= min([int(yMaxL),yBound]) or max([int(xMinL),0]) >= min([int(xMaxL),xBound]):
+                                leftHandLocations.append((xMinL*0.5,xMaxL*1.5,yMinL*0.5,yMaxL*1.5))
+                            else:
+                                leftHandGestureFrame = leftHandGestureFrame[max([int(yMinL),0]):min([int(yMaxL),yBound]),max([int(xMinL),0]):min([int(xMaxL),xBound])]
+                                #leftHandGestureFrame = leftHandGestureFrame[max([int(xMinL),0]):min([int(xMaxL),xBound]),max([int(yMinL),0]):min([int(yMaxL),yBound])]
+                                print(np.shape(leftHandGestureFrame))
+                                cv2.imshow('Left Hand Gesture Frame',leftHandGestureFrame)
+                                handL_ = cv2.rectangle(handL_,(int(xMinL),int(yMinL)),(int(xMaxL),int(yMaxL)),(255,0,0),1)
+                                leftHandLocations.append((xMinL*0.5,xMaxL*1.5,yMinL*0.5,yMaxL*1.5)) # Increasing the size of the box around the hand coordinates.
+                        else:
+                            leftHandLocations.append(None)
+                                
+                        if resultsR_.multi_hand_landmarks:
+                            rightHandGestureFrame = copy.deepcopy(handR_)
+                            for hand_landmarks in resultsR_.multi_hand_landmarks:
+                                xMinR, xMaxR, yMinR, yMaxR = ExtractCoordinatesFromLandmark(hand_landmarks, handTracking)
+                                xMinR *= xHandSizeR
+                                xMaxR *= xHandSizeR
+                                yMinR *= yHandSizeR
+                                yMaxR *= yHandSizeR
+
+                                mp_drawing.draw_landmarks(handR_,
+                                                        hand_landmarks,
+                                                        mp_hands.HAND_CONNECTIONS,
+                                                        mp_drawing_styles.get_default_hand_landmarks_style(),
+                                                        mp_drawing_styles.get_default_hand_connections_style())
+                            
+
+                            rightHandGestureFrame = rightHandGestureFrame[max([int(yMinR),0]):int(yMaxR),max([int(xMinR),0]):int(xMaxR)]
+                            #rightHandGestureFrame = rightHandGestureFrame[max([int(xMinR),0]):int(xMaxR),max([int(yMinR),0]):int(yMaxR)]
+                            cv2.imshow('Right Hand Gesture Frame',rightHandGestureFrame)
+                            handR_ = cv2.rectangle(handR_,(int(xMinR),int(yMinR)),(int(xMaxR),int(yMaxR)),(0,255,0),1)
+                            rightHandLocations.append((xMinR*0.5,xMaxR*1.5,yMinR*0.5,yMaxR*1.5)) # Increasing the size of the box around the hand coordinates.
+                        else:
+                            rightHandLocations.append(None)
+                        
+                        leftHandCorners.append(curLeftHandCorner)
+                        rightHandCorners.append(curRightHandCorner)
+
+                        cv2.imshow('Left Hand',handL_)
+                        cv2.imshow('Right Hand',handR_)
+                        ###
 
                 # STATIC HAND GESTURE RECOGNITION.
 
@@ -398,7 +577,7 @@ def GestureRecognition(windowSize=7, device="cpu", visualize = True, jointReplac
                 # DYNAMIC POSE AUGMENTATION.
                 # 
                 if normalizedPosePreds[0] is not None:
-                    poseAug.augmentPoseDynamic(normalizedAugmentedPoses)
+                    poseAug.augmentPoseDynamic(normalizedAugmentedPoses)    # vector size: 303
 
                 # VISUALIZATION.
                 row1 = np.concatenate(windowFrames[:3], axis=1)
@@ -460,9 +639,13 @@ def GaussianSmoothPose(windowPoses,b,keypointNumber=11):
     
     return newWindowPose
 
-def ExtractCoordinatesFromLandmark(hand_landmarks):
+def ExtractCoordinatesFromLandmark(hand_landmarks, handTracking):
     xMax, xMin, yMax, yMin = None, None, None, None
+    allCoordinatesX = []
+    allCoordinatesY = []
     for coordinates in hand_landmarks.landmark:
+        allCoordinatesX.append(coordinates.x)
+        allCoordinatesY.append(coordinates.y)
         if xMax is None or xMax < coordinates.x:
             xMax = coordinates.x
         if xMin is None or xMin > coordinates.x:
@@ -471,7 +654,10 @@ def ExtractCoordinatesFromLandmark(hand_landmarks):
             yMax = coordinates.y
         if yMin is None or yMin > coordinates.y:
             yMin = coordinates.y #if coordinates.y > 0 else yMin
-    return xMin-0.1, xMax+0.1, yMin-0.1, yMax+0.1   # 5% padding is added to the coordinates to avoid cropping the hand.
+    if handTracking=='whole_image':
+        return xMin-0.02, xMax+0.02, yMin-0.02, yMax+0.02, np.mean(allCoordinatesX), np.mean(allCoordinatesY) # 2% padding
+    if handTracking=='individual_image':
+        return xMin-0.1, xMax+0.1, yMin-0.1, yMax+0.1   # 5% padding is added to the coordinates to avoid cropping the hand.
 
 if __name__=="__main__":
     
