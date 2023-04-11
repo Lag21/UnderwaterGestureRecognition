@@ -45,8 +45,16 @@ class StaticGestureRecognizer():
         for k, v in state_dict.items():
             name = k[6:]
             new_state_dict[name] = v 
-    
+
     self.model.load_state_dict(new_state_dict)
+
+    self.activation = {}
+    def get_activation(name):
+      def hook(model, input, output):
+        self.activation[name] = output.detach()
+      return hook
+    
+    self.model.global_pool.register_forward_hook(get_activation('avgpool'))
     self.model.eval()
     #return model
 
@@ -67,3 +75,9 @@ class StaticGestureRecognizer():
     estClass = np.argmax(probabilities)
     maxProbability = torch.max(probabilities)
     print(f'Recognizing gesture {estClass} with a confidence of {maxProbability}')
+
+  def GetEmbedding(self):
+    inputBatch = self.imageTensor.unsqueeze(0)
+    with torch.no_grad():
+      self.model(inputBatch)
+    return self.activation['avgpool']

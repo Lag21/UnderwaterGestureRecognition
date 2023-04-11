@@ -4,10 +4,12 @@ import pandas as pd
 from glob import glob
 
 print(os.getcwd())
-os.chdir('../../Datasets/ChaLearnLSSI')
+#os.chdir('../../Datasets/ChaLearnLSSI')
 print(os.getcwd())
 
-data = pd.read_csv('train_labels.csv',header=None)
+datasetPath = '../../Datasets/ChaLearnLSSI/'
+
+data = pd.read_csv(datasetPath+'train_labels.csv',header=None)
 
 counter = 0
 for idx, row in data.iterrows():
@@ -21,7 +23,7 @@ for idx, row in data.iterrows():
     pathfile = 'train/'+file+'_color.mp4'
     print(pathfile)
 
-    cap = cv2.VideoCapture(pathfile)
+    cap = cv2.VideoCapture(datasetPath+pathfile)
     width = int(cap.get(3))
     height = int(cap.get(4))
     fps = int(cap.get(5))
