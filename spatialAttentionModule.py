@@ -100,6 +100,7 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
     leftHandVector = []
     rightHandVector = []
     augmentedPoseVector = []
+    xDyn = []
 
     ###
     with mp_hands.Hands(model_complexity=1,
@@ -604,12 +605,24 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
                 # DYNAMIC POSE AUGMENTATION.
                 # 
                 if normalizedPosePreds[0] is not None:
-                    poseAug.augmentPoseDynamic(normalizedAugmentedPoses)    # vector size: 303
-                    curAugmentedPose = copy.deepcopy(normalizedAugmentedPoses[3])
+                    curAugmentedPose = poseAug.augmentPoseDynamic(normalizedAugmentedPoses)    # vector size: 303
+                    #curAugmentedPose = copy.deepcopy(normalizedAugmentedPoses[3])
 
+                # EXTRACTING OUTPUTS
+                if curLeftHandEmbed is None:
+                    curLeftHandEmbed = torch.zeros(2048)
+                if curRightHandEmbed is None:
+                    curRightHandEmbed = torch.zeros(2048)
+                if curAugmentedPose is None:
+                    curAugmentedPose = torch.zeros(303)
+                
                 leftHandVector.append(curLeftHandEmbed)
                 rightHandVector.append(curRightHandEmbed)
                 augmentedPoseVector.append(curAugmentedPose)
+                curRightHandEmbed = curRightHandEmbed.squeeze(0).numpy()
+                curAugmentedPose = np.array(curAugmentedPose)
+                curLeftHandEmbed = curLeftHandEmbed.squeeze(0).numpy()
+                xDyn.append(np.concatenate((curRightHandEmbed,curAugmentedPose,curLeftHandEmbed)))
 
                 # VISUALIZATION.
                 if visualize:
@@ -647,7 +660,7 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
         if saveOutput:
             output.release()
         cv2.destroyAllWindows()
-    return (leftHandVector, rightHandVector, augmentedPoseVector)
+    return (leftHandVector, rightHandVector, augmentedPoseVector, np.array(xDyn))
 
 def GaussianSmoothPose(windowPoses,b,keypointNumber=11):
     smoothXCoord = []
@@ -696,8 +709,8 @@ def ExtractCoordinatesFromLandmark(hand_landmarks, handTracking):
 if __name__=="__main__":
     device = 'cuda'
     # Input and output paths.
-    videoFile = "croppedVideos/ChaLearn05.mp4"
-    outputFile = "croppedVideos/windowTests/ChaLearn05_psNorm.mp4"
+    videoFile = "croppedVideos/ChaLearn04.mp4"
+    outputFile = "croppedVideos/windowTests/ChaLearn04_psNorm.mp4"
 
     # Initializing detector and pose estimator.
     detectionModel = _DetModel(device=device)
@@ -719,13 +732,13 @@ if __name__=="__main__":
     mp_hands = mp.solutions.hands
     mediaPipe = (mp_drawing,mp_drawing_styles,mp_hands)
 
-    leftHandVector, rightHandVector, augmentedPoseVector = GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthModel, staticGestureModel, mediaPipe, device=device)
+    leftHandVector, rightHandVector, augmentedPoseVector, xDyn = GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthModel, staticGestureModel, mediaPipe, device=device)
 
     print('-----')
     print(len(leftHandVector), len(rightHandVector), len(augmentedPoseVector))
     print('-----')
-    print(leftHandVector)
+    print(len(leftHandVector[-10][0]),leftHandVector)
     print('-----')
-    print(rightHandVector)
+    print(len(rightHandVector[-10][0]),rightHandVector)
     print('-----')
     #print(augmentedPoseVector)

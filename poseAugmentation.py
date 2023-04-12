@@ -1,14 +1,18 @@
+import copy
 import numpy as np
 from PIL import Image, ImageDraw
 
 def augmentPoseDynamic(augmentedPoseWindow, jointStructure='body'):
+    tempPose = copy.deepcopy(augmentedPoseWindow[3])
     for i, joint in enumerate(augmentedPoseWindow[3][:21]):
         velJoint = augmentedPoseWindow[4][i] - augmentedPoseWindow[2][i] # dP_k = P_(k+1) - P_(k-1)
         accJoint = augmentedPoseWindow[5][i] + augmentedPoseWindow[1][i] - 2*joint # d2P_k = P_(k+2) + P_(k-2) - 2P_k
-        augmentedPoseWindow[3].append(velJoint)
-        augmentedPoseWindow[3].append(accJoint)
+        #augmentedPoseWindow[3].append(velJoint)
+        #augmentedPoseWindow[3].append(accJoint)
+        tempPose.append(velJoint)
+        tempPose.append(accJoint)
 
-    #return posePlusDynamic
+    return tempPose
 
 
 def augmentPose(pose_preds, jointStructure='body'):
@@ -58,7 +62,6 @@ def augmentPose(pose_preds, jointStructure='body'):
     for ang in bestFitAngles:
         #print(ang)
         posePlus.append(np.array([ang]))
-
     return posePlus
 
 def calcBestFit(x,y):
