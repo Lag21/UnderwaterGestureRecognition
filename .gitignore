@@ -16,3 +16,5 @@ vitpose_configs/
 aPs_*.npy
 eDs_*.npy
 videoCropping.py
+*.npy
+*.ipynb

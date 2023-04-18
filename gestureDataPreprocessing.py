@@ -15,43 +15,58 @@ from spatialAttentionModule import GestureRecognition
 
 def main(detectionModel, poseModel, depthModel, staticGestureModel, mediaPipe):
     datasetPath = '../../Datasets/ChaLearnLSSI/'
+    currentSigner = 'signer2_'
 
     data = pd.read_csv(datasetPath+'train_labels.csv',header=None)
+
+    dataBySigner = data[data[0].str.contains(currentSigner)]
+
+    if dataBySigner.empty:
+        print("This signer does not have any train data.")
+        return
 
     counter = 0
     videoLengths = []
 
-    for idx, row in tqdm(data.iterrows()):
+    processedSamples = glob('DatasetSamples/ChaLearnLSSIEmbeddings/*.npy')
+
+    for idx, row in tqdm(dataBySigner.iterrows()):
+        sampleStatus = False
         file = row[0]
         gestureLabel = row[1]
+        pathfile = 'train/'+file+'_color.mp4'
+        
+        for processedSample in processedSamples:
+            if file in processedSample:
+                sampleStatus=True
+                break
+        
+        if sampleStatus:
+            continue
+
+        try:
+            leftHandVector, rightHandVector, augmentedPoseVector, xDyn = GestureRecognition(datasetPath+pathfile,
+                                                                                            None,
+                                                                                            detectionModel,
+                                                                                            poseModel,
+                                                                                            depthModel,
+                                                                                            staticGestureModel,
+                                                                                            mediaPipe,
+                                                                                            device=device,
+                                                                                            visualize=False,
+                                                                                            verbose=False)
+
+            #print(len(leftHandVector), len(rightHandVector), len(augmentedPoseVector), len(xDyn))
+            #print(type(leftHandVector), type(rightHandVector), type(augmentedPoseVector), type(xDyn))
+            np.save('DatasetSamples/ChaLearnLSSIEmbeddings/'+file+'.npy',xDyn,allow_pickle=True)
+        except Exception as e:
+            print(f'Had issues with file {file}:')
+            print(f"Unexpected {e}, {type(e)}")
+
         counter+=1
-        if counter >= 2:
+        if counter >= 150:
             break
 
-        pathfile = 'train/'+file+'_color.mp4'
-
-        leftHandVector, rightHandVector, augmentedPoseVector, xDyn = GestureRecognition(datasetPath+pathfile, None, detectionModel, poseModel, depthModel, staticGestureModel, mediaPipe, device=device)
-
-        print(len(leftHandVector), len(rightHandVector), len(augmentedPoseVector), len(xDyn))
-        print(type(leftHandVector), type(rightHandVector), type(augmentedPoseVector), type(xDyn))
-        #cap = cv2.VideoCapture(datasetPath+pathfile)
-        #width = int(cap.get(3))
-        #height = int(cap.get(4))
-        #fps = int(cap.get(5))
-
-        #while(cap.isOpened()):
-        #    ret, frame = cap.read()
-
-        #    if ret:
-                #cv2.imshow('Video',frame)
-        #        pressedKey = cv2.waitKey(1) & 0xFF
-        #        if pressedKey == ord('q'):
-        #            break
-        #    else:
-        #        break
-
-        #cap.release()
-        #cv2.destroyAllWindows()
 
 if __name__=="__main__":
     device = 'cuda'

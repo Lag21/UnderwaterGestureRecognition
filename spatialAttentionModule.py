@@ -20,6 +20,7 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
                        windowSize=7,
                        device="cpu",
                        visualize = True,
+                       verbose = True,
                        jointReplacement = True,
                        poseFilter = True,
                        saveOutput = False,
@@ -148,12 +149,12 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
                 if len(posePredictions) == 0 and misdetectionCounter < maxConsecutiveReplacements:
                     posePredictions = posePreds[-1]
                     misdetectionCounter += 1
-                    print(f"Replaced human detection and whole skeleton for {misdetectionCounter} consecutive times.")
+                    if verbose: print(f"Replaced human detection and whole skeleton for {misdetectionCounter} consecutive times.")
                 elif len(posePredictions) == 0 and misdetectionCounter >= maxConsecutiveReplacements:
                     posePredictions = posePreds[-1]
                     posePredictions[0]['keypoints'][:,2] = 0    # If there were too many consecutive misdetections, set all keypoint confidence values to 0
                     misdetectionCounter += 1
-                    print(f"{misdetectionCounter} consecutive misdetections, setting pose predictions to 0.")
+                    if verbose: print(f"{misdetectionCounter} consecutive misdetections, setting pose predictions to 0.")
                 else:
                     misdetectionCounter = 0
 
@@ -180,7 +181,7 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
                                 if prevJointConf >= jointThreshold and replacementCounter[i] < maxConsecutiveReplacements and misdetectionCounter < maxConsecutiveReplacements:
                                     windowPoses[-1][i] = windowPoses[-2][i]
                                     replacementCounter[i] += 1
-                                    print(f"Replaced joint {i} for {replacementCounter[i]} consecutive times.")
+                                    if verbose: print(f"Replaced joint {i} for {replacementCounter[i]} consecutive times.")
                                 else:
                                     replacementCounter[i] = 0
                             else:
@@ -280,7 +281,6 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
                                 if len(leftHandCoordinates) > 0:
                                     xMin_, xMax_, yMin_, yMax_, xCenter_, yCenter_ = leftHandCoordinates[-1]
                                     leftHandCloseness = 1-(abs(xCenter_-xCenter))/xCenter_
-                                    #print(leftHandCloseness)
                                 if len(rightHandCoordinates) > 0:
                                     xMin_, xMax_, yMin_, yMax_, xCenter_, yCenter_ = rightHandCoordinates[-1]
                                     rightHandCloseness = 1-(abs(xCenter_-xCenter))/xCenter_
@@ -331,7 +331,7 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
                                 deltaHand = np.array(rightHandCoordinates[1])-np.array(rightHandCoordinates[0])
                                 rightHandCoordinates.append(list(np.array(rightHandCoordinates[-1])+deltaHand))
                                 rightHandMisdetections += 1
-                                print(f'Replaced right hand coordinates for {rightHandMisdetections} consecutive times:')
+                                if verbose: print(f'Replaced right hand coordinates for {rightHandMisdetections} consecutive times:')
                             elif rightHandMisdetections >= 3:
                                 rightHandCoordinates = []
 
@@ -340,7 +340,7 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
                                 deltaHand = np.array(leftHandCoordinates[1])-np.array(leftHandCoordinates[0])
                                 leftHandCoordinates.append(list(np.array(leftHandCoordinates[-1])+deltaHand))
                                 leftHandMisdetections += 1
-                                print(f'Replaced left hand coordinates for {leftHandMisdetections} consecutive times.')
+                                if verbose: print(f'Replaced left hand coordinates for {leftHandMisdetections} consecutive times.')
                             elif leftHandMisdetections >= 3:
                                 leftHandCoordinates = []
 
@@ -411,7 +411,7 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
                             prev_ULx, prev_ULy = leftHandCorners[-1]   # Corner of left hand frame in previous frame
                             #handL_ = rawWindowFrames[3].copy()[int(prev_ULy+prevYMin):int(prev_ULy+prevYMax),int(prev_ULx+prevXMin):int(prev_ULx+prevXMax)]
                             if np.array(handL_).shape[0] == 0 or np.array(handL_).shape[1] == 0:
-                                print(f"Left hand image collapsed while zooming on hand. Zooming out.")
+                                if verbose: print(f"Left hand image collapsed while zooming on hand. Zooming out.")
                                 handL_ = rawWindowFrames[3].copy()[int(handL[1])-modL_:int(handL[1])+modL_,int(handL[0])-modL_:int(handL[0])+modL_]
                             else:
                                 curLeftHandCorner = (int(prev_ULx+prevXMin*0.2),int(prev_ULy+prevYMin*0.2))
@@ -421,7 +421,7 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
                             prev_ULx, prev_ULy = rightHandCorners[-1]
                             #handR_ = rawWindowFrames[3].copy()[int(prev_ULy+prevYMin):int(prev_ULy+prevYMax),int(prev_ULx+prevXMin):int(prev_ULx+prevXMax)]
                             if np.array(handR_).shape[0] == 0 or np.array(handR_).shape[1] == 0:
-                                print(f"Right hand image collapsed while zooming on hand. Zooming out.")
+                                if verbose: print(f"Right hand image collapsed while zooming on hand. Zooming out.")
                                 handR_ = rawWindowFrames[3].copy()[int(handR[1])-modR_:int(handR[1])+modR_,int(handR[0])-modR_:int(handR[0])+modR_]
                             else:
                                 curRightHandCorner = (int(prev_ULx+prevXMin*0.2),int(prev_ULy+prevYMin*0.2))
@@ -525,13 +525,11 @@ def GestureRecognition(videoFile, outputFile, detectionModel, poseModel, depthMo
 
                 #if leftHandGestureFrame is not None:
                 if curLeftHand is not None:
-                    #print("--- Left Hand Gesture ---")
                     staticGestureModel.LoadArray(curLeftHand)
                     curLeftHandEmbed = staticGestureModel.GetEmbedding()
 
                 #if rightHandGestureFrame is not None:
                 if curRightHand is not None:
-                    #print("--- Right Hand Gesture ---")
                     staticGestureModel.LoadArray(curRightHand)
                     curRightHandEmbed = staticGestureModel.GetEmbedding()
 
